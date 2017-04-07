@@ -1,0 +1,27 @@
+{
+  "name": "agents",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "dependencies": {
+    "@cycle/dom": "^17.1.0",
+    "@cycle/run": "^3.1.0",
+    "@cycle/time": "^0.8.0",
+    "xstream": "^10.5.0"
+  },
+  "devDependencies": {
+    "@types/mocha": "^2.2.40",
+    "@types/node": "^7.0.12",
+    "browserify": "^14.3.0",
+    "mocha": "^3.2.0",
+    "ts-node": "^3.0.2",
+    "tsify": "^3.0.1",
+    "typescript": "^2.2.2"
+  },
+  "scripts": {
+    "test": "mocha --watch -R min --compilers ts:ts-node/register test/**/*.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

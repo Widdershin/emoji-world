@@ -28,7 +28,7 @@ function goalSatisfied (agent: Agent, goal: Goal): boolean {
   let equal = true;
 
   Object.keys(goal).forEach(key => {
-    equal = (agent as any)[key] == goal[key];
+    equal = (agent as any)[key] === goal[key];
   });
 
   return equal;

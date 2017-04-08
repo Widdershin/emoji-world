@@ -13,12 +13,14 @@
     "@types/mocha": "^2.2.40",
     "@types/node": "^7.0.12",
     "browserify": "^14.3.0",
+    "budo": "^9.4.7",
     "mocha": "^3.2.0",
     "ts-node": "^3.0.2",
     "tsify": "^3.0.1",
     "typescript": "^2.2.2"
   },
   "scripts": {
+    "start": "budo src/index.ts:bundle.js --live -- -p tsify",
     "test": "mocha --watch -R min --compilers ts:ts-node/register test/**/*.ts"
   },
   "keywords": [],

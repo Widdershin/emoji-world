@@ -1,0 +1,32 @@
+html, body {
+  margin: 0;
+  padding: 0;
+
+  height: 100%;
+  
+  background: lightgreen;
+}
+
+.app {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+
+  height: 100%;
+}
+
+.agents {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid white;
+  padding: 10px;
+}
+
+.row {
+  display: flex;
+}
+
+.cell {
+  width: 16px;
+  height: 26px;
+}

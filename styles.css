@@ -3,8 +3,8 @@ html, body {
   padding: 0;
 
   height: 100%;
-  
-  background: lightgreen;
+
+  background: #1C6BA0;
 }
 
 .app {
@@ -15,11 +15,23 @@ html, body {
   height: 100%;
 }
 
+.stuff {
+  display: flex;
+  color: white;
+}
+
 .agents {
   display: flex;
   flex-direction: column;
-  border: 1px solid white;
   padding: 10px;
+  background: lightgreen;
+  border-radius: 15px;
+}
+
+.agent::before {
+  content: '⛏️';
+  position: absolute;
+  transform: translateX(-10px);
 }
 
 .row {

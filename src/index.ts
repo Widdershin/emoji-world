@@ -17,13 +17,14 @@ type Apple = {
   position: Position;
 }
 
-type Chicken = {
-  kind: 'chicken'
+type Tree = {
+  kind: 'tree'
 }
 
-type Entity = Apple;
+type Entity = Apple | Tree;
 
 type State = {
+  timeOfDay: number,
   agents: Agent[],
   background: Array<Array<Entity | null>>,
   width: number,
@@ -142,10 +143,15 @@ function renderCell (state: State, row: number, column: number): VNode {
 
 function renderView (state: State): VNode {
   const rows = make2dArray(state.width, state.height, (row, column) => renderCell(state, row, column))
+  const brightness = Math.max(1 - Math.abs(12 - state.timeOfDay) / 12, 0.2);
+
+  const style = {
+    filter: `brightness(${brightness})`
+  };
 
   return (
     div('.stuff', [
-      div('.agents', rows.map(row => div('.row', row)))
+      div('.agents', {style}, rows.map(row => div('.row', row)))
     ])
   )
 }
@@ -202,6 +208,14 @@ function someTree (row: number, column: number): Entity | null {
         column
       }
     }
+  } else if (random > 0.8) {
+    return {
+      kind: 'tree',
+      position: {
+        row,
+        column
+      }
+    }
   } else {
     return null;
   }
@@ -212,6 +226,8 @@ function update (state: State): State {
   //
   const agents = state.agents;
   state.agents = [];
+
+  state.timeOfDay = (state.timeOfDay + 0.2) % 24;
 
   return agents.reduce((currentState: State, agent: Agent) => {
     const update = produceUpdate(currentState, agent);
@@ -442,6 +458,7 @@ function main (sources: Sources): Sinks {
       */
     ],
     background: make2dArray(60, 20, someTree),
+    timeOfDay: 8,
     width: 60,
     height: 20
   }

@@ -26,6 +26,8 @@ html, body {
   padding: 10px;
   background: lightgreen;
   border-radius: 15px;
+
+  transition: filter 0.3s linear;
 }
 
 .agent::before {

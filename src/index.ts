@@ -1,4 +1,4 @@
-import { DOMSource, VNode, makeDOMDriver, div, pre } from "@cycle/dom";
+import { DOMSource, VNode, makeDOMDriver, div, pre, strong} from "@cycle/dom";
 import { run } from "@cycle/run";
 import { TimeSource, timeDriver } from "@cycle/time";
 import xs, { Stream } from "xstream";
@@ -22,12 +22,28 @@ type Tree = {
   position: Position;
 };
 
+type Branch = {
+  kind: "branch";
+  position: Position;
+};
+
+type Stone = {
+  kind: "stone";
+  position: Position;
+};
+
 type House = {
   kind: "house";
   position: Position;
 };
 
-type Entity = Apple | Tree | House;
+type Entity = Apple | Tree | House | Branch | Stone;
+
+type Axe = {
+  kind: "axe";
+};
+
+type Equipment = Axe;
 
 type State = {
   timeOfDay: number;
@@ -44,6 +60,7 @@ type Agent = {
   hunger: number;
   goal: Goal;
   plan: Plan;
+  holding: Equipment | null;
   hasShelter: boolean;
   inRange: boolean;
   inventory: Inventory;
@@ -51,6 +68,8 @@ type Agent = {
 
 interface Inventory {
   logs: number;
+  branches: number;
+  stones: number;
 }
 
 type EffectedStateAndAgent = {
@@ -93,6 +112,8 @@ const emoji: EmojiMap = {
   chicken: "🐓",
   apple: "🍎",
   house: "🏠",
+  branch: "\\",
+  stone: ".",
   null: " "
 };
 
@@ -155,7 +176,16 @@ function renderCell(state: State, row: number, column: number): VNode {
     content = emoji[entity.kind];
   }
 
-  return div(".cell", { class: { agent } }, content);
+  return div(
+    ".cell",
+    {
+      class: {
+        agent,
+        axe: agent && agent.holding && agent.holding.kind === "axe"
+      }
+    },
+    content
+  );
 }
 
 function renderView(state: State): VNode {
@@ -169,6 +199,10 @@ function renderView(state: State): VNode {
   };
 
   return div(".stuff", [
+    div(".plan", [
+      strong(state.agents[0].goal.name),
+      ...state.agents[0].plan.map(action => action.name).map(name => div(name))
+    ]),
     div(".agents", { style }, rows.map(row => div(".row", row)))
   ]);
 }
@@ -204,13 +238,13 @@ function findGoal(agent: Agent): Goal {
     };
   }
 
-  console.log('all done but to eat');
+  console.log("all done but to eat");
   return {
     name: "Eat",
     goalState: {
       hunger: 100
     }
-  }
+  };
 }
 
 function makePlan(
@@ -279,6 +313,22 @@ function someTree(row: number, column: number): Entity | null {
   } else if (random > 0.8) {
     return {
       kind: "tree",
+      position: {
+        row,
+        column
+      }
+    };
+  } else if (random > 0.75) {
+    return {
+      kind: "branch",
+      position: {
+        row,
+        column
+      }
+    };
+  } else if (random > 0.7) {
+    return {
+      kind: "stone",
       position: {
         row,
         column
@@ -437,31 +487,80 @@ const AllActions = [
   {
     name: "Eat apple",
     requiresInRange: true,
-    findTarget: findApple,
-    canBePerformed: (state: State, agent: Agent) => applesExistToEat(state),
+    findTarget: find("apple"),
+    canBePerformed: entityExists("apple"),
     effect: (state: State, agent: Agent) => ({
-      state: removeAdjacentApple(state, agent),
+      state: removeAdjacent(state, agent, "apple"),
       agent: { ...agent, hunger: 100 }
     })
   },
   {
     name: "Build Shelter",
     requiresInRange: false,
-    canBePerformed: (state: State, agent: Agent) => agent.inventory.logs === 3,
+    canBePerformed: has("logs", 2),
     findTarget: () => ({ row: 0, column: 0 }),
     effect: (state: State, agent: Agent) => ({
       state: buildHouse(state, agent),
-      agent: { ...agent, hasShelter: true, inventory: {...agent.inventory, logs: agent.inventory.logs - 3} }
+      agent: {
+        ...agent,
+        hasShelter: true,
+        inventory: { ...agent.inventory, logs: agent.inventory.logs - 2 }
+      }
     })
   },
   {
     name: "Fell Tree",
     requiresInRange: true,
-    findTarget: findTree,
-    canBePerformed: (state: State, agent: Agent) => treesExistToFell(state),
+    findTarget: find("tree"),
+    canBePerformed: both(holding("axe"), entityExists("tree")),
     effect: (state: State, agent: Agent) => ({
-      state: removeAdjacentTree(state, agent),
-      agent: { ...agent, inventory: {...agent.inventory, logs: agent.inventory.logs + 1}}
+      state: removeAdjacent(state, agent, "tree"),
+      agent: {
+        ...agent,
+        inventory: { ...agent.inventory, logs: agent.inventory.logs + 1 }
+      }
+    })
+  },
+  {
+    name: "Make Axe",
+    requiresInRange: false,
+    findTarget: () => ({row: 0, column: 0}),
+    canBePerformed: both(has("stones", 1), has("branches", 1)),
+    effect: (state: State, agent: Agent) => ({
+      state,
+      agent: {
+        ...agent,
+
+        holding: ({
+          kind: 'axe',
+        } as Axe),
+
+        inventory: {
+          ...agent.inventory,
+          stones: agent.inventory.stones - 1,
+          branches: agent.inventory.branches - 1
+        }
+      }
+    })
+  },
+  {
+    name: "Gather Stone",
+    requiresInRange: true,
+    findTarget: find("stone"),
+    canBePerformed: entityExists("stone"),
+    effect: (state: State, agent: Agent) => ({
+      state: removeAdjacent(state, agent, "stone"),
+      agent: { ...agent, inventory: addToInventory(agent.inventory, "stones", 1) }
+    })
+  },
+  {
+    name: "Gather Branch",
+    requiresInRange: true,
+    findTarget: find("branch"),
+    canBePerformed: entityExists("branch"),
+    effect: (state: State, agent: Agent) => ({
+      state: removeAdjacent(state, agent, "branch"),
+      agent: { ...agent, inventory: addToInventory(agent.inventory, "branches", 1) }
     })
   }
 ];
@@ -470,40 +569,41 @@ function flatten<T>(a: Array<Array<T>>): Array<T> {
   return a.reduce((arr, cur) => arr.concat(cur), []);
 }
 
-function findApple(state: State, agent: Agent): Position {
-  const apple = flatten(state.background as any)
-    .filter(entity => entity && (entity as Apple).kind === "apple")
-    .sort(
-      (a: Apple, b: Apple) =>
-        distance(a.position, agent.position) -
-        distance(b.position, agent.position)
-    )[0] as Apple;
+function find(type: string): (state: State, agent: Agent) => Position {
+  return function(state: State, agent: Agent): Position {
+    const apple = flatten(state.background as any)
+      .filter(entity => entity && (entity as Apple).kind === type)
+      .sort(
+        (a: Apple, b: Apple) =>
+          distance(a.position, agent.position) -
+          distance(b.position, agent.position)
+      )[0] as Apple;
 
-  return apple.position;
+    return apple.position;
+  };
 }
 
-function findTree(state: State, agent: Agent): Position {
-  const apple = flatten(state.background as any)
-    .filter(entity => entity && (entity as Tree).kind === "tree")
-    .sort(
-      (a: Apple, b: Apple) =>
-        distance(a.position, agent.position) -
-        distance(b.position, agent.position)
-    )[0] as Tree;
+type StateCheck = (state: State, agent: Agent) => boolean;
 
-  return apple.position;
+function both(a: StateCheck, b: StateCheck): StateCheck {
+  return function (state: State, agent: Agent): boolean {
+    return a(state, agent) && b(state, agent);
+  }
 }
 
-function applesExistToEat(state: State): boolean {
-  return !!flatten(state.background).find(
-    entity => (entity ? entity.kind === "apple" : false)
-  );
+
+function holding(kind: string): StateCheck {
+  return function (_: State, agent: Agent): boolean {
+    return !!agent.holding && agent.holding.kind === kind;
+  }
 }
 
-function treesExistToFell(state: State): boolean {
-  return !!flatten(state.background).find(
-    entity => (entity ? entity.kind === "tree" : false)
-  );
+function entityExists(type: string): (state: State) => boolean {
+  return function(state: State) {
+    return !!flatten(state.background).find(
+      entity => (entity ? entity.kind === type : false)
+    );
+  };
 }
 
 function buildHouse(state: State, agent: Agent): State {
@@ -529,9 +629,9 @@ function buildHouse(state: State, agent: Agent): State {
   };
 }
 
-function removeAdjacentApple(state: State, agent: Agent): State {
+function removeAdjacent(state: State, agent: Agent, type: string): State {
   const applePositions = flatten(state.background).filter(
-    entity => entity && entity.kind === "apple"
+    entity => entity && entity.kind === type
   );
 
   const adjacentApple = applePositions.find((apple: Apple) => {
@@ -548,23 +648,17 @@ function removeAdjacentApple(state: State, agent: Agent): State {
   };
 }
 
-function removeAdjacentTree(state: State, agent: Agent): State {
-  const applePositions = flatten(state.background).filter(
-    entity => entity && entity.kind === "tree"
-  );
+function has(type: string, quantity: number): StateCheck {
+  return function (state: State, agent: Agent): boolean {
+    return (agent.inventory as any)[type] >= quantity;
+  }
+}
 
-  const adjacentApple = applePositions.find((apple: Apple) => {
-    return distance(agent.position, apple.position) === 0;
-  });
-
+function addToInventory(inventory: Inventory, type: string, amount: number): Inventory {
   return {
-    ...state,
-
-    background: map2dArray(
-      state.background,
-      entity => (entity === adjacentApple ? null : entity)
-    )
-  };
+    ...inventory,
+    [type]: (inventory as any)[type] + amount
+  } as Inventory;
 }
 
 function map2dArray<T, U>(
@@ -580,18 +674,6 @@ function distance(a: Position, b: Position): number {
   return Math.abs(a.row - b.row) + Math.abs(a.column - b.column);
 }
 
-function distanceFromAgentToApple(state: State, agent: Agent): number {
-  const applePositions = flatten(state.background).filter(
-    entity => entity && entity.kind === "apple"
-  );
-
-  const appleDistances = applePositions.map((apple: Apple) => {
-    return distance(agent.position, apple.position);
-  });
-
-  return Math.min(...appleDistances);
-}
-
 function main(sources: Sources): Sinks {
   const initialState: State = {
     agents: [
@@ -605,6 +687,7 @@ function main(sources: Sources): Sinks {
         inRange: false,
         hunger: 50,
         hasShelter: false,
+        holding: null,
         goal: {
           name: "Eat",
 
@@ -613,7 +696,9 @@ function main(sources: Sources): Sinks {
           }
         },
         inventory: {
-          logs: 0
+          logs: 0,
+          branches: 0,
+          stones: 0
         },
 
         plan: []

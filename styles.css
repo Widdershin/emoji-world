@@ -30,7 +30,7 @@ html, body {
   transition: filter 0.3s linear;
 }
 
-.agent::before {
+.agent.axe::before {
   content: '⛏️';
   position: absolute;
   transform: translateX(-10px);

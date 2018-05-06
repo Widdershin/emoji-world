@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "dependencies": {
-    "@cycle/dom": "^17.1.0",
+    "@cycle/dom": "^20.2.0",
     "@cycle/run": "^3.1.0",
     "@cycle/time": "^0.8.0",
     "xstream": "^10.5.0"

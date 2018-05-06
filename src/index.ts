@@ -1,55 +1,67 @@
-import {DOMSource, VNode, makeDOMDriver, div, pre} from '@cycle/dom';
-import {run} from '@cycle/run';
-import {TimeSource, timeDriver} from '@cycle/time';
-import xs, {Stream} from 'xstream';
+import { DOMSource, VNode, makeDOMDriver, div, pre } from "@cycle/dom";
+import { run } from "@cycle/run";
+import { TimeSource, timeDriver } from "@cycle/time";
+import xs, { Stream } from "xstream";
 
 type Sources = {
   DOM: DOMSource;
   Time: TimeSource;
-}
+};
 
 type Sinks = {
-  DOM: Stream<VNode>
-}
+  DOM: Stream<VNode>;
+};
 
 type Apple = {
-  kind: 'apple',
+  kind: "apple";
   position: Position;
-}
+};
 
 type Tree = {
-  kind: 'tree'
-}
+  kind: "tree";
+  position: Position;
+};
 
-type Entity = Apple | Tree;
+type House = {
+  kind: "house";
+  position: Position;
+};
+
+type Entity = Apple | Tree | House;
 
 type State = {
-  timeOfDay: number,
-  agents: Agent[],
-  background: Array<Array<Entity | null>>,
-  width: number,
-  height: number
-}
+  timeOfDay: number;
+  agents: Agent[];
+  background: Array<Array<Entity | null>>;
+  width: number;
+  height: number;
+};
 
 type Agent = {
-  kind: 'normal',
-  position: Position,
-  destination: Position | null,
-  hunger: number,
-  goal: Goal,
-  plan: Plan,
-  inRange: boolean
+  kind: "normal";
+  position: Position;
+  destination: Position | null;
+  hunger: number;
+  goal: Goal;
+  plan: Plan;
+  hasShelter: boolean;
+  inRange: boolean;
+  inventory: Inventory;
+};
+
+interface Inventory {
+  logs: number;
 }
 
 type EffectedStateAndAgent = {
-  state: State,
-  agent: Agent
-}
+  state: State;
+  agent: Agent;
+};
 
 type Position = {
   row: number;
   column: number;
-}
+};
 
 type Effect = (state: State, agent: Agent) => EffectedStateAndAgent;
 type PreconditionCheck = (state: State, agent: Agent) => boolean;
@@ -60,40 +72,41 @@ type Action = {
   requiresInRange: boolean;
   findTarget: TargetFinder;
   canBePerformed: PreconditionCheck;
-  effect: Effect
-}
+  effect: Effect;
+};
 
 type Plan = Action[];
 
 type Goal = {
-  name: string,
+  name: string;
   goalState: {
-    [propertyToChange: string]: any
-  }
-}
+    [propertyToChange: string]: any;
+  };
+};
 
 type EmojiMap = {
-  [key: string]: string
-}
+  [key: string]: string;
+};
 
-const emoji : EmojiMap = {
-  'tree': '🌲',
-  'chicken': '🐓',
-  'apple': '🍎',
-  'null': ' '
-}
+const emoji: EmojiMap = {
+  tree: "🌲",
+  chicken: "🐓",
+  apple: "🍎",
+  house: "🏠",
+  null: " "
+};
 
-const agentEmoji : EmojiMap = {
-  'full': '😋',
-  'happy': '😀',
-  'slightlyHappy': '🙂',
-  'neutral': '😐',
-  'slightlyUnhappy': '🙁',
-  'unhappy': '☹️',
-  'veryUnhappy': '😫'
-}
+const agentEmoji: EmojiMap = {
+  full: "😋",
+  happy: "😀",
+  slightlyHappy: "🙂",
+  neutral: "😐",
+  slightlyUnhappy: "🙁",
+  unhappy: "☹️",
+  veryUnhappy: "😫"
+};
 
-function renderAgent (agent: Agent): string {
+function renderAgent(agent: Agent): string {
   if (agent.hunger > 95) {
     return agentEmoji.full;
   }
@@ -121,14 +134,20 @@ function renderAgent (agent: Agent): string {
   return agentEmoji.veryUnhappy;
 }
 
-function findAgentAtPosition (state: State, position: Position): Agent | null {
-  return state.agents.find(agent => agent.position.row === position.row && agent.position.column === position.column) || null;
+function findAgentAtPosition(state: State, position: Position): Agent | null {
+  return (
+    state.agents.find(
+      agent =>
+        agent.position.row === position.row &&
+        agent.position.column === position.column
+    ) || null
+  );
 }
 
-function renderCell (state: State, row: number, column: number): VNode {
+function renderCell(state: State, row: number, column: number): VNode {
   const entity = state.background[row][column];
-  const agent = findAgentAtPosition(state, {row, column});
-  let content = '';
+  const agent = findAgentAtPosition(state, { row, column });
+  let content = "";
 
   if (agent) {
     content = renderAgent(agent);
@@ -136,27 +155,25 @@ function renderCell (state: State, row: number, column: number): VNode {
     content = emoji[entity.kind];
   }
 
-  return (
-    div('.cell', {class: {agent}}, content)
-  )
+  return div(".cell", { class: { agent } }, content);
 }
 
-function renderView (state: State): VNode {
-  const rows = make2dArray(state.width, state.height, (row, column) => renderCell(state, row, column))
+function renderView(state: State): VNode {
+  const rows = make2dArray(state.width, state.height, (row, column) =>
+    renderCell(state, row, column)
+  );
   const brightness = Math.max(1 - Math.abs(12 - state.timeOfDay) / 12, 0.2);
 
   const style = {
     filter: `brightness(${brightness})`
   };
 
-  return (
-    div('.stuff', [
-      div('.agents', {style}, rows.map(row => div('.row', row)))
-    ])
-  )
+  return div(".stuff", [
+    div(".agents", { style }, rows.map(row => div(".row", row)))
+  ]);
 }
 
-function goalSatisfied (agent: Agent, goal: Goal): boolean {
+function goalSatisfied(agent: Agent, goal: Goal): boolean {
   let equal = true;
 
   Object.keys(goal.goalState).forEach(key => {
@@ -166,12 +183,51 @@ function goalSatisfied (agent: Agent, goal: Goal): boolean {
   return equal;
 }
 
-function makePlan (agent: Agent, state: State, goal: Goal, actions: Action[], plan: Plan = [], depth: number = 0): Plan | null {
+function findGoal(agent: Agent): Goal {
+  if (agent.hunger < 50) {
+    return {
+      name: "Eat",
+
+      goalState: {
+        hunger: 80
+      }
+    };
+  }
+
+  if (!agent.hasShelter) {
+    return {
+      name: "Build Shelter",
+
+      goalState: {
+        hasShelter: true
+      }
+    };
+  }
+
+  console.log('all done but to eat');
+  return {
+    name: "Eat",
+    goalState: {
+      hunger: 100
+    }
+  }
+}
+
+function makePlan(
+  agent: Agent,
+  state: State,
+  goal: Goal,
+  actions: Action[],
+  plan: Plan = [],
+  depth: number = 0
+): Plan | null {
   if (goalSatisfied(agent, goal)) {
     return plan;
   }
 
-  const possibleActions = actions.filter(action => action.canBePerformed(state, agent));
+  const possibleActions = actions.filter(action =>
+    action.canBePerformed(state, agent)
+  );
 
   if (possibleActions.length === 0 || depth > 6) {
     return null;
@@ -180,48 +236,60 @@ function makePlan (agent: Agent, state: State, goal: Goal, actions: Action[], pl
   const allPlans = possibleActions.map(action => {
     const updatedAgentAndState = action.effect(state, agent);
 
-    return makePlan(updatedAgentAndState.agent, updatedAgentAndState.state, goal, actions, plan.concat(action), depth + 1)
-  })
+    return makePlan(
+      updatedAgentAndState.agent,
+      updatedAgentAndState.state,
+      goal,
+      actions,
+      plan.concat(action),
+      depth + 1
+    );
+  });
 
-  return allPlans
-    .filter(plan => !!plan)
-    .sort((a, b) => (a as Action[]).length - (b as Action[]).length)[0] || null;
+  return (
+    allPlans
+      .filter(plan => !!plan)
+      .sort((a, b) => (a as Action[]).length - (b as Action[]).length)[0] ||
+    null
+  );
 }
 
-function make2dArray<T> (width: number, height: number, seed: (row: number, column: number) => T): Array<Array<T>> {
+function make2dArray<T>(
+  width: number,
+  height: number,
+  seed: (row: number, column: number) => T
+): Array<Array<T>> {
   return new Array(height)
     .fill(0)
     .map((_, row) =>
-      new Array(width)
-        .fill(0)
-        .map((_, column) => seed(row, column))
+      new Array(width).fill(0).map((_, column) => seed(row, column))
     );
 }
 
-function someTree (row: number, column: number): Entity | null {
+function someTree(row: number, column: number): Entity | null {
   const random = Math.random();
   if (random > 0.95) {
     return {
-      kind: 'apple',
+      kind: "apple",
       position: {
         row,
         column
       }
-    }
+    };
   } else if (random > 0.8) {
     return {
-      kind: 'tree',
+      kind: "tree",
       position: {
         row,
         column
       }
-    }
+    };
   } else {
     return null;
   }
 }
 
-function update (state: State): State {
+function update(state: State): State {
   // for each agent, allow the agent to update it's own state and the global state
   //
   const agents = state.agents;
@@ -238,16 +306,25 @@ function update (state: State): State {
       ...update.state,
 
       agents: currentState.agents.concat(update.agent)
-    }
+    };
   }, state);
 }
 
-function produceUpdate (state: State, agent: Agent): EffectedStateAndAgent {
+function produceUpdate(state: State, agent: Agent): EffectedStateAndAgent {
   let newPlan = agent.plan;
-  let agentUpdate : any = {hunger: agent.hunger - 0.5};
+  let agentUpdate: any = { hunger: agent.hunger - 0.5 };
+  let goal = agent.goal;
+
+  if (goalSatisfied(agent, goal)) {
+    goal = findGoal(agent);
+    agent.goal = goal;
+  }
 
   if (agent.plan.length === 0) {
-    newPlan = makePlan(agent, state, agent.goal, AllActions) || [];
+    newPlan = makePlan(agent, state, goal, AllActions) || [];
+    if (newPlan.length == 0) {
+      console.log("could not find a plan for", goal.name);
+    }
     agentUpdate.plan = newPlan;
   }
 
@@ -271,7 +348,7 @@ function produceUpdate (state: State, agent: Agent): EffectedStateAndAgent {
 
         ...agentUpdate
       }
-    }
+    };
   }
 
   if (nextAction.requiresInRange && !agent.inRange) {
@@ -283,7 +360,7 @@ function produceUpdate (state: State, agent: Agent): EffectedStateAndAgent {
           ...agentUpdate,
           destination: nextAction.findTarget(state, agent)
         }
-      }
+      };
     }
 
     if (distance(agent.position, agent.destination) === 0) {
@@ -296,7 +373,7 @@ function produceUpdate (state: State, agent: Agent): EffectedStateAndAgent {
           destination: null,
           inRange: true
         }
-      }
+      };
     }
 
     const movement = moveTowards(agent.position, agent.destination);
@@ -309,7 +386,7 @@ function produceUpdate (state: State, agent: Agent): EffectedStateAndAgent {
         ...agentUpdate,
         position: add(agent.position, movement)
       }
-    }
+    };
   }
 
   const actionEffect = nextAction.effect(state, agent);
@@ -327,10 +404,10 @@ function produceUpdate (state: State, agent: Agent): EffectedStateAndAgent {
       plan: agent.plan.slice(1),
       inRange: false
     }
-  }
+  };
 }
 
-function sign (n: number): -1 | 0 | 1 {
+function sign(n: number): -1 | 0 | 1 {
   if (n < 0) {
     return -1;
   }
@@ -342,48 +419,120 @@ function sign (n: number): -1 | 0 | 1 {
   return 0;
 }
 
-function moveTowards (a: Position, b: Position): Position {
+function moveTowards(a: Position, b: Position): Position {
   return {
     row: sign(b.row - a.row),
     column: sign(b.column - a.column)
-  }
+  };
 }
 
-function add (a: Position, b: Position): Position {
+function add(a: Position, b: Position): Position {
   return {
     row: a.row + b.row,
     column: a.column + b.column
-  }
+  };
 }
 
 const AllActions = [
   {
-    name: 'Eat apple',
+    name: "Eat apple",
     requiresInRange: true,
     findTarget: findApple,
     canBePerformed: (state: State, agent: Agent) => applesExistToEat(state),
-    effect: (state: State, agent: Agent) => ({state: removeAdjacentApple(state, agent), agent: {...agent, hunger: 100}})
+    effect: (state: State, agent: Agent) => ({
+      state: removeAdjacentApple(state, agent),
+      agent: { ...agent, hunger: 100 }
+    })
+  },
+  {
+    name: "Build Shelter",
+    requiresInRange: false,
+    canBePerformed: (state: State, agent: Agent) => agent.inventory.logs === 3,
+    findTarget: () => ({ row: 0, column: 0 }),
+    effect: (state: State, agent: Agent) => ({
+      state: buildHouse(state, agent),
+      agent: { ...agent, hasShelter: true, inventory: {...agent.inventory, logs: agent.inventory.logs - 3} }
+    })
+  },
+  {
+    name: "Fell Tree",
+    requiresInRange: true,
+    findTarget: findTree,
+    canBePerformed: (state: State, agent: Agent) => treesExistToFell(state),
+    effect: (state: State, agent: Agent) => ({
+      state: removeAdjacentTree(state, agent),
+      agent: { ...agent, inventory: {...agent.inventory, logs: agent.inventory.logs + 1}}
+    })
   }
-]
+];
 
-function flatten<T> (a: Array<Array<T>>): Array<T> {
+function flatten<T>(a: Array<Array<T>>): Array<T> {
   return a.reduce((arr, cur) => arr.concat(cur), []);
 }
 
-function findApple (state: State, agent: Agent): Position {
+function findApple(state: State, agent: Agent): Position {
   const apple = flatten(state.background as any)
-    .filter(entity => entity && (entity as Apple).kind === 'apple')
-    .sort((a: Apple, b: Apple) => distance(a.position, agent.position) - distance(b.position, agent.position))[0] as Apple
+    .filter(entity => entity && (entity as Apple).kind === "apple")
+    .sort(
+      (a: Apple, b: Apple) =>
+        distance(a.position, agent.position) -
+        distance(b.position, agent.position)
+    )[0] as Apple;
 
   return apple.position;
 }
 
-function applesExistToEat (state: State): boolean {
-  return !!flatten(state.background).find(entity => entity ? entity.kind === 'apple' : false);
+function findTree(state: State, agent: Agent): Position {
+  const apple = flatten(state.background as any)
+    .filter(entity => entity && (entity as Tree).kind === "tree")
+    .sort(
+      (a: Apple, b: Apple) =>
+        distance(a.position, agent.position) -
+        distance(b.position, agent.position)
+    )[0] as Tree;
+
+  return apple.position;
 }
 
-function removeAdjacentApple (state: State, agent: Agent): State {
-  const applePositions = flatten(state.background).filter(entity => entity && entity.kind === 'apple');
+function applesExistToEat(state: State): boolean {
+  return !!flatten(state.background).find(
+    entity => (entity ? entity.kind === "apple" : false)
+  );
+}
+
+function treesExistToFell(state: State): boolean {
+  return !!flatten(state.background).find(
+    entity => (entity ? entity.kind === "tree" : false)
+  );
+}
+
+function buildHouse(state: State, agent: Agent): State {
+  const house: House = {
+    kind: "house",
+    position: {
+      row: agent.position.row - 1,
+      column: agent.position.column
+    }
+  };
+
+  return {
+    ...state,
+
+    background: map2dArray(
+      state.background,
+      (entity: Entity, position: Position): Entity =>
+        position.row === agent.position.row - 1 &&
+        position.column === agent.position.column
+          ? house
+          : entity
+    )
+  };
+}
+
+function removeAdjacentApple(state: State, agent: Agent): State {
+  const applePositions = flatten(state.background).filter(
+    entity => entity && entity.kind === "apple"
+  );
 
   const adjacentApple = applePositions.find((apple: Apple) => {
     return distance(agent.position, apple.position) === 0;
@@ -392,20 +541,49 @@ function removeAdjacentApple (state: State, agent: Agent): State {
   return {
     ...state,
 
-    background: map2dArray(state.background, (entity) => entity === adjacentApple ? null : entity)
-  }
+    background: map2dArray(
+      state.background,
+      entity => (entity === adjacentApple ? null : entity)
+    )
+  };
 }
 
-function map2dArray<T, U> (arr: Array<Array<T>>, f: (t: T) => U): Array<Array<U>> {
-  return arr.map(row => row.map(f));
+function removeAdjacentTree(state: State, agent: Agent): State {
+  const applePositions = flatten(state.background).filter(
+    entity => entity && entity.kind === "tree"
+  );
+
+  const adjacentApple = applePositions.find((apple: Apple) => {
+    return distance(agent.position, apple.position) === 0;
+  });
+
+  return {
+    ...state,
+
+    background: map2dArray(
+      state.background,
+      entity => (entity === adjacentApple ? null : entity)
+    )
+  };
 }
 
-function distance (a: Position, b: Position): number {
+function map2dArray<T, U>(
+  arr: Array<Array<T>>,
+  f: (t: T, p?: Position) => U
+): Array<Array<U>> {
+  return arr.map((row, r) =>
+    row.map((cell, c) => f(cell, { row: r, column: c }))
+  );
+}
+
+function distance(a: Position, b: Position): number {
   return Math.abs(a.row - b.row) + Math.abs(a.column - b.column);
 }
 
-function distanceFromAgentToApple (state: State, agent: Agent): number {
-  const applePositions = flatten(state.background).filter(entity => entity && entity.kind === 'apple');
+function distanceFromAgentToApple(state: State, agent: Agent): number {
+  const applePositions = flatten(state.background).filter(
+    entity => entity && entity.kind === "apple"
+  );
 
   const appleDistances = applePositions.map((apple: Apple) => {
     return distance(agent.position, apple.position);
@@ -414,28 +592,32 @@ function distanceFromAgentToApple (state: State, agent: Agent): number {
   return Math.min(...appleDistances);
 }
 
-function main (sources: Sources): Sinks {
-  const initialState : State = {
+function main(sources: Sources): Sinks {
+  const initialState: State = {
     agents: [
       {
         position: {
           row: 10,
-          column: 5,
+          column: 5
         },
         destination: null,
-        kind: 'normal',
+        kind: "normal",
         inRange: false,
         hunger: 50,
+        hasShelter: false,
         goal: {
-          name: 'Eat',
+          name: "Eat",
 
           goalState: {
             hunger: 100
           }
         },
+        inventory: {
+          logs: 0
+        },
 
         plan: []
-      },
+      }
       /*
       {
         position: {
@@ -461,7 +643,7 @@ function main (sources: Sources): Sinks {
     timeOfDay: 8,
     width: 60,
     height: 20
-  }
+  };
 
   const update$ = sources.Time.periodic(1000 / 5);
 
@@ -469,12 +651,12 @@ function main (sources: Sources): Sinks {
 
   return {
     DOM: state$.map(renderView)
-  }
+  };
 }
 
 const drivers = {
-  DOM: makeDOMDriver('.app'),
+  DOM: makeDOMDriver(".app"),
   Time: timeDriver
-}
+};
 
 run(main, drivers);

@@ -1,4 +1,4 @@
-import { DOMSource, VNode, makeDOMDriver, div, pre, strong} from "@cycle/dom";
+import { DOMSource, VNode, makeDOMDriver, div, pre, strong } from "@cycle/dom";
 import { run } from "@cycle/run";
 import { TimeSource, timeDriver } from "@cycle/time";
 import xs, { Stream } from "xstream";
@@ -40,7 +40,7 @@ type House = {
 type Well = {
   kind: "well";
   position: Position;
-}
+};
 
 type Entity = Apple | Tree | House | Branch | Stone | Well;
 
@@ -64,10 +64,12 @@ type Agent = {
   destination: Position | null;
   hunger: number;
   thirst: number;
+  energy: number;
   goal: Goal;
   plan: Plan;
   holding: Equipment | null;
   hasShelter: boolean;
+  shelterLocation: Position | null;
   inRange: boolean;
   inventory: Inventory;
 };
@@ -213,23 +215,38 @@ function renderView(state: State): VNode {
       ...state.agents[0].plan.map(action => action.name).map(name => div(name)),
       div(`Hunger: ${state.agents[0].hunger}`),
       div(`Thirst: ${state.agents[0].thirst}`),
-      div(`Shelter: ${state.agents[0].hasShelter}`),
+      div(`Energy: ${state.agents[0].energy}`),
+      div(`Shelter: ${state.agents[0].hasShelter}`)
     ]),
     div(".agents", { style }, rows.map(row => div(".row", row)))
   ]);
 }
 
 function goalSatisfied(agent: Agent, goal: Goal): boolean {
-  let equal = true;
+  let satisfied = true;
 
   Object.keys(goal.goalState).forEach(key => {
-    equal = (agent as any)[key] === goal.goalState[key];
+    if (typeof (agent as any)[key] === 'number') {
+      satisfied = (agent as any)[key] >= goal.goalState[key];
+    } else {
+      satisfied = (agent as any)[key] === goal.goalState[key];
+    }
   });
 
-  return equal;
+  return satisfied;
 }
 
 function findGoal(agent: Agent): Goal {
+  if (agent.energy < 50) {
+    return {
+      name: "Sleep",
+
+      goalState: {
+        energy: 100
+      }
+    };
+  }
+
   if (agent.thirst < 70) {
     return {
       name: "Drink",
@@ -260,7 +277,6 @@ function findGoal(agent: Agent): Goal {
     };
   }
 
-  console.log("all done but to eat");
   return {
     name: "Eat",
     goalState: {
@@ -382,9 +398,17 @@ function update(state: State): State {
   }, state);
 }
 
+function dayTime(timeOfDay:number): boolean {
+  return timeOfDay > 7 && timeOfDay < 20;
+}
+
 function produceUpdate(state: State, agent: Agent): EffectedStateAndAgent {
   let newPlan = agent.plan;
-  let agentUpdate: any = { hunger: agent.hunger - 0.5, thirst: agent.thirst - 1 };
+  let agentUpdate: any = {
+    hunger: agent.hunger - 0.5,
+    thirst: agent.thirst - 1,
+    energy: agent.energy - (dayTime(state.timeOfDay) ? 0.5 : 1)
+  };
   let goal = agent.goal;
 
   if (goalSatisfied(agent, goal)) {
@@ -527,6 +551,7 @@ const AllActions: Action[] = [
       agent: {
         ...agent,
         hasShelter: true,
+        shelterLocation: {row: agent.position.row - 1, column: agent.position.column},
         inventory: { ...agent.inventory, logs: agent.inventory.logs - 2 }
       }
     })
@@ -560,16 +585,16 @@ const AllActions: Action[] = [
   {
     name: "Make Axe",
     requiresInRange: false,
-    findTarget: () => ({row: 0, column: 0}),
+    findTarget: () => ({ row: 0, column: 0 }),
     canBePerformed: both(has("stones", 1), has("branches", 1)),
     effect: (state: State, agent: Agent) => ({
       state,
       agent: {
         ...agent,
 
-        holding: ({
-          kind: 'axe',
-        } as Axe),
+        holding: {
+          kind: "axe"
+        } as Axe,
 
         inventory: {
           ...agent.inventory,
@@ -586,7 +611,10 @@ const AllActions: Action[] = [
     canBePerformed: entityExists("stone"),
     effect: (state: State, agent: Agent) => ({
       state: removeAdjacent(state, agent, "stone"),
-      agent: { ...agent, inventory: addToInventory(agent.inventory, "stones", 1) }
+      agent: {
+        ...agent,
+        inventory: addToInventory(agent.inventory, "stones", 1)
+      }
     })
   },
   {
@@ -596,7 +624,10 @@ const AllActions: Action[] = [
     canBePerformed: entityExists("branch"),
     effect: (state: State, agent: Agent) => ({
       state: removeAdjacent(state, agent, "branch"),
-      agent: { ...agent, inventory: addToInventory(agent.inventory, "branches", 1) }
+      agent: {
+        ...agent,
+        inventory: addToInventory(agent.inventory, "branches", 1)
+      }
     })
   },
   {
@@ -607,6 +638,16 @@ const AllActions: Action[] = [
     effect: (state: State, agent: Agent) => ({
       state,
       agent: { ...agent, thirst: 100 }
+    })
+  },
+  {
+    name: "Sleep at Shelter",
+    requiresInRange: true,
+    findTarget: (state, agent) => agent.shelterLocation as Position,
+    canBePerformed: (state, agent) => agent.hasShelter,
+    effect: (state: State, agent: Agent) => ({
+      state,
+      agent: { ...agent, energy: agent.energy + 25 }
     })
   }
 ];
@@ -632,16 +673,15 @@ function find(type: string): (state: State, agent: Agent) => Position {
 type StateCheck = (state: State, agent: Agent) => boolean;
 
 function both(a: StateCheck, b: StateCheck): StateCheck {
-  return function (state: State, agent: Agent): boolean {
+  return function(state: State, agent: Agent): boolean {
     return a(state, agent) && b(state, agent);
-  }
+  };
 }
 
-
 function holding(kind: string): StateCheck {
-  return function (_: State, agent: Agent): boolean {
+  return function(_: State, agent: Agent): boolean {
     return !!agent.holding && agent.holding.kind === kind;
-  }
+  };
 }
 
 function entityExists(type: string): (state: State) => boolean {
@@ -653,26 +693,26 @@ function entityExists(type: string): (state: State) => boolean {
 }
 
 function build(type: string, state: State, agent: Agent): State {
-    const house: any = {
-      kind: type,
-      position: {
-        row: agent.position.row - 1,
-        column: agent.position.column
-      }
-    };
+  const house: any = {
+    kind: type,
+    position: {
+      row: agent.position.row - 1,
+      column: agent.position.column
+    }
+  };
 
-    return {
-      ...state,
+  return {
+    ...state,
 
-      background: map2dArray(
-        state.background,
-        (entity: Entity, position: Position): Entity =>
-          position.row === agent.position.row - 1 &&
-          position.column === agent.position.column
-            ? house
-            : entity
-      )
-    };
+    background: map2dArray(
+      state.background,
+      (entity: Entity, position: Position): Entity =>
+        position.row === agent.position.row - 1 &&
+        position.column === agent.position.column
+          ? house
+          : entity
+    )
+  };
 }
 
 function removeAdjacent(state: State, agent: Agent, type: string): State {
@@ -695,12 +735,16 @@ function removeAdjacent(state: State, agent: Agent, type: string): State {
 }
 
 function has(type: string, quantity: number): StateCheck {
-  return function (state: State, agent: Agent): boolean {
+  return function(state: State, agent: Agent): boolean {
     return (agent.inventory as any)[type] >= quantity;
-  }
+  };
 }
 
-function addToInventory(inventory: Inventory, type: string, amount: number): Inventory {
+function addToInventory(
+  inventory: Inventory,
+  type: string,
+  amount: number
+): Inventory {
   return {
     ...inventory,
     [type]: (inventory as any)[type] + amount
@@ -733,34 +777,9 @@ function main(sources: Sources): Sinks {
         inRange: false,
         hunger: 50 + Math.random() * 50,
         thirst: 50 + Math.random() * 50,
+        energy: 90,
         hasShelter: false,
-        holding: null,
-        goal: {
-          name: "Eat",
-
-          goalState: {
-            hunger: 100
-          }
-        },
-        inventory: {
-          logs: 0,
-          branches: 0,
-          stones: 0
-        },
-
-        plan: []
-      },
-      {
-        position: {
-          row: 7,
-          column: 15
-        },
-        destination: null,
-        kind: "normal",
-        inRange: false,
-        hunger: 50 + Math.random() * 50,
-        thirst: 50 + Math.random() * 50,
-        hasShelter: false,
+        shelterLocation: null,
         holding: null,
         goal: {
           name: "Eat",

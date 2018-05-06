@@ -37,7 +37,12 @@ type House = {
   position: Position;
 };
 
-type Entity = Apple | Tree | House | Branch | Stone;
+type Well = {
+  kind: "well";
+  position: Position;
+}
+
+type Entity = Apple | Tree | House | Branch | Stone | Well;
 
 type Axe = {
   kind: "axe";
@@ -58,6 +63,7 @@ type Agent = {
   position: Position;
   destination: Position | null;
   hunger: number;
+  thirst: number;
   goal: Goal;
   plan: Plan;
   holding: Equipment | null;
@@ -114,6 +120,7 @@ const emoji: EmojiMap = {
   house: "🏠",
   branch: "\\",
   stone: ".",
+  well: "䷯",
   null: " "
 };
 
@@ -128,27 +135,29 @@ const agentEmoji: EmojiMap = {
 };
 
 function renderAgent(agent: Agent): string {
-  if (agent.hunger > 95) {
+  const worstStat = Math.min(agent.hunger, agent.thirst);
+
+  if (worstStat > 95) {
     return agentEmoji.full;
   }
 
-  if (agent.hunger > 80) {
+  if (worstStat > 80) {
     return agentEmoji.happy;
   }
 
-  if (agent.hunger > 60) {
+  if (worstStat > 60) {
     return agentEmoji.slightlyHappy;
   }
 
-  if (agent.hunger > 50) {
+  if (worstStat > 50) {
     return agentEmoji.neutral;
   }
 
-  if (agent.hunger > 40) {
+  if (worstStat > 40) {
     return agentEmoji.slightlyUnhappy;
   }
 
-  if (agent.hunger > 20) {
+  if (worstStat > 20) {
     return agentEmoji.unhappy;
   }
 
@@ -201,7 +210,10 @@ function renderView(state: State): VNode {
   return div(".stuff", [
     div(".plan", [
       strong(state.agents[0].goal.name),
-      ...state.agents[0].plan.map(action => action.name).map(name => div(name))
+      ...state.agents[0].plan.map(action => action.name).map(name => div(name)),
+      div(`Hunger: ${state.agents[0].hunger}`),
+      div(`Thirst: ${state.agents[0].thirst}`),
+      div(`Shelter: ${state.agents[0].hasShelter}`),
     ]),
     div(".agents", { style }, rows.map(row => div(".row", row)))
   ]);
@@ -218,6 +230,16 @@ function goalSatisfied(agent: Agent, goal: Goal): boolean {
 }
 
 function findGoal(agent: Agent): Goal {
+  if (agent.thirst < 70) {
+    return {
+      name: "Drink",
+
+      goalState: {
+        thirst: 100
+      }
+    };
+  }
+
   if (agent.hunger < 50) {
     return {
       name: "Eat",
@@ -362,12 +384,13 @@ function update(state: State): State {
 
 function produceUpdate(state: State, agent: Agent): EffectedStateAndAgent {
   let newPlan = agent.plan;
-  let agentUpdate: any = { hunger: agent.hunger - 0.5 };
+  let agentUpdate: any = { hunger: agent.hunger - 0.5, thirst: agent.thirst - 1 };
   let goal = agent.goal;
 
   if (goalSatisfied(agent, goal)) {
     goal = findGoal(agent);
     agent.goal = goal;
+    agentUpdate.goal = goal;
   }
 
   if (agent.plan.length === 0) {
@@ -483,7 +506,7 @@ function add(a: Position, b: Position): Position {
   };
 }
 
-const AllActions = [
+const AllActions: Action[] = [
   {
     name: "Eat apple",
     requiresInRange: true,
@@ -500,11 +523,24 @@ const AllActions = [
     canBePerformed: has("logs", 2),
     findTarget: () => ({ row: 0, column: 0 }),
     effect: (state: State, agent: Agent) => ({
-      state: buildHouse(state, agent),
+      state: build("house", state, agent),
       agent: {
         ...agent,
         hasShelter: true,
         inventory: { ...agent.inventory, logs: agent.inventory.logs - 2 }
+      }
+    })
+  },
+  {
+    name: "Build Well",
+    requiresInRange: false,
+    canBePerformed: has("stones", 2),
+    findTarget: () => ({ row: 0, column: 0 }),
+    effect: (state: State, agent: Agent) => ({
+      state: build("well", state, agent),
+      agent: {
+        ...agent,
+        inventory: { ...agent.inventory, stones: agent.inventory.stones - 2 }
       }
     })
   },
@@ -562,11 +598,21 @@ const AllActions = [
       state: removeAdjacent(state, agent, "branch"),
       agent: { ...agent, inventory: addToInventory(agent.inventory, "branches", 1) }
     })
+  },
+  {
+    name: "Drink from Well",
+    requiresInRange: true,
+    findTarget: find("well"),
+    canBePerformed: entityExists("well"),
+    effect: (state: State, agent: Agent) => ({
+      state,
+      agent: { ...agent, thirst: 100 }
+    })
   }
 ];
 
 function flatten<T>(a: Array<Array<T>>): Array<T> {
-  return a.reduce((arr, cur) => arr.concat(cur), []);
+  return Array.prototype.concat.apply([], a);
 }
 
 function find(type: string): (state: State, agent: Agent) => Position {
@@ -606,27 +652,27 @@ function entityExists(type: string): (state: State) => boolean {
   };
 }
 
-function buildHouse(state: State, agent: Agent): State {
-  const house: House = {
-    kind: "house",
-    position: {
-      row: agent.position.row - 1,
-      column: agent.position.column
-    }
-  };
+function build(type: string, state: State, agent: Agent): State {
+    const house: any = {
+      kind: type,
+      position: {
+        row: agent.position.row - 1,
+        column: agent.position.column
+      }
+    };
 
-  return {
-    ...state,
+    return {
+      ...state,
 
-    background: map2dArray(
-      state.background,
-      (entity: Entity, position: Position): Entity =>
-        position.row === agent.position.row - 1 &&
-        position.column === agent.position.column
-          ? house
-          : entity
-    )
-  };
+      background: map2dArray(
+        state.background,
+        (entity: Entity, position: Position): Entity =>
+          position.row === agent.position.row - 1 &&
+          position.column === agent.position.column
+            ? house
+            : entity
+      )
+    };
 }
 
 function removeAdjacent(state: State, agent: Agent, type: string): State {
@@ -685,7 +731,35 @@ function main(sources: Sources): Sinks {
         destination: null,
         kind: "normal",
         inRange: false,
-        hunger: 50,
+        hunger: 50 + Math.random() * 50,
+        thirst: 50 + Math.random() * 50,
+        hasShelter: false,
+        holding: null,
+        goal: {
+          name: "Eat",
+
+          goalState: {
+            hunger: 100
+          }
+        },
+        inventory: {
+          logs: 0,
+          branches: 0,
+          stones: 0
+        },
+
+        plan: []
+      },
+      {
+        position: {
+          row: 7,
+          column: 15
+        },
+        destination: null,
+        kind: "normal",
+        inRange: false,
+        hunger: 50 + Math.random() * 50,
+        thirst: 50 + Math.random() * 50,
         hasShelter: false,
         holding: null,
         goal: {
@@ -703,6 +777,7 @@ function main(sources: Sources): Sinks {
 
         plan: []
       }
+
       /*
       {
         position: {

@@ -144,7 +144,8 @@ const agentEmoji: EmojiMap = {
   slightlyUnhappy: "🙁",
   unhappy: "☹️",
   veryUnhappy: "😫",
-  asleep: "😴"
+  asleep: "😴",
+  eating: "😋"
 };
 
 function renderAgent(agent: Agent): string {
@@ -159,6 +160,13 @@ function renderAgent(agent: Agent): string {
     distance(agent.position, agent.shelterLocation) === 0
   ) {
     return agentEmoji.asleep;
+  }
+
+  if (
+    agent.plan.length > 0 &&
+    agent.plan[0].name.indexOf("Eat") === 0
+  ) {
+    return agentEmoji.eating;
   }
 
   const worstStat = Math.min(agent.hunger, agent.thirst, agent.energy);

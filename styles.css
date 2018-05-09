@@ -3,8 +3,6 @@ html, body {
   padding: 0;
 
   height: 100%;
-
-  background: #1C6BA0;
 }
 
 .app {
@@ -13,21 +11,29 @@ html, body {
   align-items: center;
 
   height: 100%;
+  width: 100%;
 }
 
 .stuff {
   display: flex;
   color: white;
+  justify-content: center;
+  align-items: center;
+
+  background: #1C6BA0;
+  width: 100%;
+  height: 100%;
+
+  transition: filter 0.3s linear;
 }
 
 .agents {
+  background: #f5ce76;
   display: flex;
   flex-direction: column;
   padding: 10px;
-  background: lightgreen;
   border-radius: 15px;
 
-  transition: filter 0.3s linear;
 }
 
 .agent.axe::before {
@@ -36,8 +42,24 @@ html, body {
   transform: translateX(-10px);
 }
 
+.agent.rod::before {
+  content: '🎣';
+  position: absolute;
+  transform: rotateY(180deg) translateX(18px);
+  clip-path: polygon(0% -10%, 70% 0%, 0% 100%);
+}
+
+.agent.rod.fish::before {
+  clip-path: none;
+}
+
 .row {
+  background: lightgreen;
   display: flex;
+}
+
+.sand {
+  background: #f5ce76;
 }
 
 .cell {

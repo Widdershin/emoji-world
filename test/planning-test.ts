@@ -12,6 +12,7 @@ describe('planning algorithm', () => {
     }
 
     const expectedPlan = [
+      AllActions[1],
       AllActions[0]
     ]
 
@@ -35,7 +36,7 @@ describe('planning algorithm', () => {
     }
 
     const expectedPlan = [
-      AllActions[5]
+      AllActions[6]
     ]
 
     const plan = makePlanBetter(
@@ -58,8 +59,8 @@ describe('planning algorithm', () => {
     }
 
     const expectedPlan = [
-      AllActions[5],
-      AllActions[5]
+      AllActions[6],
+      AllActions[6]
     ]
 
     const plan = makePlanBetter(
@@ -80,9 +81,9 @@ describe('planning algorithm', () => {
     }
 
     const expectedPlan = [
+      AllActions[7],
       AllActions[6],
-      AllActions[5],
-      AllActions[4]
+      AllActions[5]
     ]
 
     const plan = makePlanBetter(
@@ -103,12 +104,12 @@ describe('planning algorithm', () => {
     }
 
     const expectedPlan = [
+      AllActions[7],
       AllActions[6],
       AllActions[5],
       AllActions[4],
-      AllActions[3],
-      AllActions[3],
-      AllActions[1]
+      AllActions[4],
+      AllActions[2]
     ]
 
     const plan = makePlanBetter(
@@ -129,13 +130,13 @@ describe('planning algorithm', () => {
     }
 
     const expectedPlan = [
+      AllActions[7],
       AllActions[6],
       AllActions[5],
       AllActions[4],
-      AllActions[3],
-      AllActions[3],
-      AllActions[1],
-      AllActions[8]
+      AllActions[4],
+      AllActions[2],
+      AllActions[9]
     ]
 
     const plan = makePlanBetter(
@@ -145,5 +146,25 @@ describe('planning algorithm', () => {
     ) || [];
 
     assert.deepEqual(plan.map(a => a.name), expectedPlan.map(a => a.name));
+  });
+
+  it('can catch a fish', () => {
+    const plan = makePlanBetter(
+      initialState.agents[0],
+      initialState,
+      {name: 'Catch a fish', goalState: {inventory: {fish: 1}}}
+    ) || [];
+
+    assert(plan.length > 0, plan.map(a => a.name).join('\n'));
+  });
+
+  it('can cook a fish', () => {
+    const plan = makePlanBetter(
+      initialState.agents[0],
+      initialState,
+      {name: 'Cook a fish', goalState: {inventory: {cookedFish: 1}}}
+    ) || [];
+
+    assert(plan.length > 0, plan.map(a => a.name).join('\n'));
   });
 });

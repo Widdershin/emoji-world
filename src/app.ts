@@ -43,14 +43,15 @@ export type Well = {
   position: Position;
 };
 
-export type Store = {
-  kind: "store";
+export type Fire = {
+  kind: "fire";
   position: Position;
+  life: number;
 };
 
-export type Entity = Apple | Tree | House | Branch | Stone | Well | Store;
+export type Entity = Apple | Tree | House | Branch | Stone | Well | Fire;
 
-export type Equipment = "axe";
+export type Equipment = "axe" | "rod";
 
 export type State = {
   timeOfDay: number;
@@ -81,6 +82,9 @@ export interface Inventory {
   logs: number;
   branches: number;
   stones: number;
+  apples: number;
+  fish: number;
+  cookedFish: number;
 }
 
 export type EffectedStateAndAgent = {
@@ -128,7 +132,7 @@ const emoji: EmojiMap = {
   stone: ".",
   well: "䷯",
   null: " ",
-  store: "🏪"
+  fire: "🔥"
 };
 
 const agentEmoji: EmojiMap = {
@@ -138,12 +142,22 @@ const agentEmoji: EmojiMap = {
   neutral: "😐",
   slightlyUnhappy: "🙁",
   unhappy: "☹️",
-  veryUnhappy: "😫"
+  veryUnhappy: "😫",
+  asleep: "😴"
 };
 
 function renderAgent(agent: Agent): string {
   if (!agent.alive) {
     return "😵";
+  }
+
+  if (
+    agent.plan.length > 0 &&
+    agent.plan[0].name === "Sleep at Shelter" &&
+    agent.shelterLocation &&
+    distance(agent.position, agent.shelterLocation) === 0
+  ) {
+    return agentEmoji.asleep;
   }
 
   const worstStat = Math.min(agent.hunger, agent.thirst, agent.energy);
@@ -200,9 +214,12 @@ function renderCell(state: State, row: number, column: number): VNode {
     ".cell",
     {
       class: {
+        sand: isSand(row, column),
         [(entity && entity.kind) || "blank"]: true,
         agent,
-        axe: agent && agent.holding === "axe"
+        axe: agent && agent.holding === "axe",
+        rod: agent && agent.holding === "rod",
+        fish: agent && agent.inventory.fish > 0
       }
     },
     content
@@ -219,7 +236,7 @@ function renderView(state: State): VNode {
     filter: `brightness(${brightness})`
   };
 
-  return div(".stuff", [
+  return div(".stuff", { style }, [
     /*div(".plan", [
       strong(state.agents[0].goal.name),
       ...state.agents[0].plan.map(action => action.name).map(name => div(name)),
@@ -228,7 +245,7 @@ function renderView(state: State): VNode {
       div(`Energy: ${state.agents[0].energy}`),
       div(`Shelter: ${state.agents[0].hasShelter}`)
     ]),*/
-    div(".agents", { style }, rows.map(row => div(".row", row)))
+    div(".agents", rows.map((row, r) => div(".row", row)))
   ]);
 }
 
@@ -425,17 +442,6 @@ export function makePlanBetter(
   return null;
 }
 
-export function makePlan(
-  agent: Agent,
-  state: State,
-  goal: Goal,
-  actions: Action[],
-  plan: Plan = [],
-  depth: number = 0
-): Plan | null {
-  return [];
-}
-
 function make2dArray<T>(
   width: number,
   height: number,
@@ -448,9 +454,15 @@ function make2dArray<T>(
     );
 }
 
+function isSand(row: number, column: number): boolean {
+  return row === 0 || row === 19 || column === 0 || column === 59;
+}
+
 function someTree(row: number, column: number): Entity | null {
   const random = Math.random();
-  if (random > 0.95) {
+  const sand = isSand(row, column);
+
+  if (random > 0.95 && !sand) {
     return {
       kind: "apple",
       position: {
@@ -458,7 +470,7 @@ function someTree(row: number, column: number): Entity | null {
         column
       }
     };
-  } else if (random > 0.9) {
+  } else if (random > 0.9 && !sand) {
     return {
       kind: "tree",
       position: {
@@ -495,7 +507,7 @@ function update(state: State): State {
 
   state.timeOfDay = (state.timeOfDay + 0.2) % 24;
 
-  return agents.reduce((currentState: State, agent: Agent) => {
+  state = agents.reduce((currentState: State, agent: Agent) => {
     const update = produceUpdate(currentState, agent);
 
     return {
@@ -506,6 +518,28 @@ function update(state: State): State {
       agents: currentState.agents.concat(update.agent)
     };
   }, state);
+
+  state = {
+    ...state,
+    background: map2dArray(state.background, (e: Entity) => {
+      if (e && e.kind === "fire") {
+        const newLife = e.life - 1;
+
+        if (newLife <= 0) {
+          return null;
+        }
+
+        return {
+          ...e,
+          life: newLife
+        };
+      }
+
+      return e;
+    })
+  };
+
+  return state;
 }
 
 function dayTime(timeOfDay: number): boolean {
@@ -644,6 +678,10 @@ function produceUpdate(state: State, agent: Agent): EffectedStateAndAgent {
   if (agent.plan.length === 0) {
     newPlan = makePlanBetter(agent, state, goal) || [];
     if (newPlan.length == 0) {
+      goal = findGoal(agent);
+      agent.goal = goal;
+      agentUpdate.goal = goal;
+      newPlan = makePlanBetter(agent, state, goal) || [];
       console.log("could not find a plan for", goal.name);
     }
     agentUpdate.plan = newPlan;
@@ -674,14 +712,26 @@ function produceUpdate(state: State, agent: Agent): EffectedStateAndAgent {
 
   if (nextAction.requiresInRange && !agent.inRange) {
     if (!agent.destination) {
-      return {
-        state,
-        agent: {
-          ...agent,
-          ...agentUpdate,
-          destination: nextAction.findTarget(state, agent)
-        }
-      };
+      let nextDestination = nextAction.findTarget(state, agent);
+      if (!nextDestination) {
+        return {
+          state,
+          agent: {
+            ...agent,
+            ...agentUpdate,
+            plan: []
+          }
+        };
+      } else {
+        return {
+          state,
+          agent: {
+            ...agent,
+            ...agentUpdate,
+            destination: nextDestination
+          }
+        };
+      }
     }
 
     if (distance(agent.position, agent.destination) === 0) {
@@ -729,11 +779,14 @@ function produceUpdate(state: State, agent: Agent): EffectedStateAndAgent {
     };
   }
   {
-    console.log("couldn't do it, you made a bad plan");
     return {
       state,
 
-      agent
+      agent: {
+        ...agent,
+        ...agentUpdate,
+        plan: []
+      }
     };
   }
 }
@@ -767,12 +820,30 @@ function add(a: Position, b: Position): Position {
 export const AllActions: Action[] = [
   {
     name: "Eat apple",
+    requiresInRange: false,
+    findTarget: () => ({ row: 0, column: 0 }),
+    canBePerformed: has("apples", 1),
+    effect: (state: State, agent: Agent) => ({
+      state,
+      agent: {
+        ...agent,
+        hunger: 100,
+        inventory: { ...agent.inventory, apples: agent.inventory.apples - 1 }
+      }
+    }),
+    cost: () => 1
+  },
+  {
+    name: "Pick up apple",
     requiresInRange: true,
     findTarget: find("apple"),
     canBePerformed: entityExists("apple"),
     effect: (state: State, agent: Agent) => ({
       state: removeAdjacent(state, agent, "apple"),
-      agent: { ...agent, hunger: 100 }
+      agent: {
+        ...agent,
+        inventory: { ...agent.inventory, apples: agent.inventory.apples + 1 }
+      }
     }),
     cost: entityDistance("apple")
   },
@@ -893,8 +964,116 @@ export const AllActions: Action[] = [
       agent: { ...agent, energy: agent.energy + 25 }
     }),
     cost: entityDistance("shelter")
+  },
+  {
+    name: "Eat Cooked Fish",
+    requiresInRange: false,
+    findTarget: () => ({ row: 0, column: 0 }),
+    canBePerformed: has("cookedFish", 1),
+    effect: (state: State, agent: Agent) => ({
+      state,
+      agent: {
+        ...agent,
+        hunger: 100,
+        inventory: {
+          ...agent.inventory,
+          cookedFish: agent.inventory.cookedFish - 1
+        }
+      }
+    }),
+    cost: () => 1
+  },
+  {
+    name: "Cook Fish",
+    requiresInRange: true,
+    findTarget: find("fire"),
+    canBePerformed: both(entityExists("fire"), has("fish", 1)),
+    effect: (state: State, agent: Agent) => ({
+      state,
+      agent: {
+        ...agent,
+        inventory: {
+          ...agent.inventory,
+          fish: agent.inventory.fish - 1,
+          cookedFish: agent.inventory.cookedFish + 1
+        }
+      }
+    }),
+    cost: () => 1
+  },
+  {
+    name: "Light Fire",
+    requiresInRange: false,
+    findTarget: () => ({ row: 0, column: 0 }),
+    canBePerformed: has("branches", 1),
+    effect: (state: State, agent: Agent) => ({
+      state: build("fire", state, agent),
+      agent: {
+        ...agent,
+        inventory: {
+          ...agent.inventory,
+          branches: agent.inventory.branches - 1
+        }
+      }
+    }),
+    cost: () => 1
+  },
+  {
+    name: "Catch Fish",
+    requiresInRange: true,
+    findTarget: nearestCoastTile,
+    canBePerformed: holding("rod"),
+    effect: (state: State, agent: Agent) => ({
+      state,
+      agent: {
+        ...agent,
+        inventory: { ...agent.inventory, fish: agent.inventory.fish + 1 }
+      }
+    }),
+    cost: () => 1
+  },
+  {
+    name: "Make Rod",
+    requiresInRange: false,
+    findTarget: () => ({ row: 0, column: 0 }),
+    canBePerformed: both(holding(null), has("branches", 1)),
+    effect: (state: State, agent: Agent) => ({
+      state,
+      agent: {
+        ...agent,
+        holding: "rod"
+      }
+    }),
+    cost: () => 1
+  },
+  {
+    name: "Put down equipment",
+    requiresInRange: false,
+    findTarget: () => ({ row: 0, column: 0 }),
+    canBePerformed: either(holding("rod"), holding("axe")),
+    effect: (state: State, agent: Agent) => ({
+      state,
+      agent: {
+        ...agent,
+        holding: null
+      }
+    }),
+    cost: () => 1
   }
 ];
+
+function nearestCoastTile(state: State, agent: Agent): Position {
+  const possibilities = [
+    { row: 0, column: agent.position.column },
+    { row: 19, column: agent.position.column },
+    { row: agent.position.row, column: 0 },
+    { row: agent.position.row, column: 59 }
+  ];
+
+  return possibilities.sort(
+    (a, b) => distance(a, agent.position) - distance(b, agent.position)
+  )[0];
+}
 
 function flatten<T>(a: Array<Array<T>>): Array<T> {
   return Array.prototype.concat.apply([], a);
@@ -938,7 +1117,13 @@ function both(a: PreconditionCheck, b: PreconditionCheck): PreconditionCheck {
   };
 }
 
-function holding(kind: string): PreconditionCheck {
+function either(a: PreconditionCheck, b: PreconditionCheck): PreconditionCheck {
+  return function(state: State, agent: Agent): number {
+    return a(state, agent) === 0 || b(state, agent) === 0 ? 0 : 1;
+  };
+}
+
+function holding(kind: string | null): PreconditionCheck {
   return function(_: State, agent: Agent): number {
     return agent.holding === kind ? 0 : 1;
   };
@@ -962,6 +1147,10 @@ function build(type: string, state: State, agent: Agent): State {
       column: agent.position.column
     }
   };
+
+  if (type === "fire") {
+    house.life = 30;
+  }
 
   return {
     ...state,
@@ -1059,7 +1248,10 @@ export const initialState: State = {
       inventory: {
         logs: 0,
         branches: 0,
-        stones: 0
+        apples: 0,
+        stones: 0,
+        fish: 0,
+        cookedFish: 0
       },
 
       plan: []
@@ -1089,7 +1281,10 @@ export const initialState: State = {
       inventory: {
         logs: 0,
         branches: 0,
-        stones: 0
+        apples: 0,
+        stones: 0,
+        fish: 0,
+        cookedFish: 0
       },
 
       plan: []
@@ -1119,7 +1314,10 @@ export const initialState: State = {
       inventory: {
         logs: 0,
         branches: 0,
-        stones: 0
+        stones: 0,
+        apples: 0,
+        fish: 0,
+        cookedFish: 0
       },
 
       plan: []

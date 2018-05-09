@@ -104,6 +104,7 @@ export type TargetFinder = (state: State, agent: Agent) => Position | null;
 export type Action = {
   name: string;
   requiresInRange: boolean;
+  range?: number;
   findTarget: TargetFinder;
   canBePerformed: PreconditionCheck;
   effect: Effect;
@@ -710,7 +711,7 @@ function produceUpdate(state: State, agent: Agent): EffectedStateAndAgent {
     };
   }
 
-  if (nextAction.requiresInRange && !agent.inRange) {
+  if (nextAction.requiresInRange) {
     let nextDestination = nextAction.findTarget(state, agent);
 
     if (!nextDestination) {
@@ -724,30 +725,19 @@ function produceUpdate(state: State, agent: Agent): EffectedStateAndAgent {
       };
     }
 
-    if (distance(agent.position, nextDestination) === 0) {
+    if (distance(agent.position, nextDestination) > (nextAction.range || 0)) {
+      const movement = moveTowards(agent.position, nextDestination);
+
       return {
         state,
 
         agent: {
           ...agent,
           ...agentUpdate,
-          destination: null,
-          inRange: true
+          position: add(agent.position, movement)
         }
       };
     }
-
-    const movement = moveTowards(agent.position, nextDestination);
-
-    return {
-      state,
-
-      agent: {
-        ...agent,
-        ...agentUpdate,
-        position: add(agent.position, movement)
-      }
-    };
   }
 
   if (nextAction.canBePerformed(state, agent) === 0) {
@@ -763,8 +753,7 @@ function produceUpdate(state: State, agent: Agent): EffectedStateAndAgent {
         ...agent,
         ...agentUpdate,
         ...actionEffect.agent,
-        plan: agent.plan.slice(1),
-        inRange: false
+        plan: agent.plan.slice(1)
       }
     };
   }
@@ -826,6 +815,7 @@ export const AllActions: Action[] = [
   {
     name: "Pick up apple",
     requiresInRange: true,
+    range: 1,
     findTarget: find("apple"),
     canBePerformed: entityExists("apple"),
     effect: (state: State, agent: Agent) => ({
@@ -873,6 +863,7 @@ export const AllActions: Action[] = [
   {
     name: "Fell Tree",
     requiresInRange: true,
+    range: 1,
     findTarget: find("tree"),
     canBePerformed: both(holding("axe"), entityExists("tree")),
     effect: (state: State, agent: Agent) => ({
@@ -908,6 +899,7 @@ export const AllActions: Action[] = [
   {
     name: "Gather Stone",
     requiresInRange: true,
+    range: 1,
     findTarget: find("stone"),
     canBePerformed: entityExists("stone"),
     effect: (state: State, agent: Agent) => ({
@@ -922,6 +914,7 @@ export const AllActions: Action[] = [
   {
     name: "Gather Branch",
     requiresInRange: true,
+    range: 1,
     findTarget: find("branch"),
     canBePerformed: entityExists("branch"),
     effect: (state: State, agent: Agent) => ({
@@ -936,6 +929,7 @@ export const AllActions: Action[] = [
   {
     name: "Drink from Well",
     requiresInRange: true,
+    range: 1,
     findTarget: find("well"),
     canBePerformed: entityExists("well"),
     effect: (state: State, agent: Agent) => ({
@@ -976,6 +970,7 @@ export const AllActions: Action[] = [
   {
     name: "Cook Fish",
     requiresInRange: true,
+    range: 1,
     findTarget: find("fire"),
     canBePerformed: both(entityExists("fire"), has("fish", 1)),
     effect: (state: State, agent: Agent) => ({
@@ -1162,7 +1157,7 @@ function removeAdjacent(state: State, agent: Agent, type: string): State {
   );
 
   const adjacentApple = applePositions.find((apple: Apple) => {
-    return distance(agent.position, apple.position) === 0;
+    return distance(agent.position, apple.position) <= 1;
   });
 
   return {

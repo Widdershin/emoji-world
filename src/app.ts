@@ -2,6 +2,7 @@ import { DOMSource, VNode, makeDOMDriver, div, pre, strong } from "@cycle/dom";
 import { run } from "@cycle/run";
 import { TimeSource, timeDriver } from "@cycle/time";
 import xs, { Stream } from "xstream";
+import * as Heap from "qheap";
 
 export type Sources = {
   DOM: DOMSource;
@@ -42,7 +43,12 @@ export type Well = {
   position: Position;
 };
 
-export type Entity = Apple | Tree | House | Branch | Stone | Well;
+export type Store = {
+  kind: "store";
+  position: Position;
+};
+
+export type Entity = Apple | Tree | House | Branch | Stone | Well | Store;
 
 export type Equipment = "axe";
 
@@ -89,7 +95,7 @@ export type Position = {
 
 export type Effect = (state: State, agent: Agent) => EffectedStateAndAgent;
 export type PreconditionCheck = (state: State, agent: Agent) => number;
-export type TargetFinder = (state: State, agent: Agent) => Position;
+export type TargetFinder = (state: State, agent: Agent) => Position | null;
 
 export type Action = {
   name: string;
@@ -97,7 +103,7 @@ export type Action = {
   findTarget: TargetFinder;
   canBePerformed: PreconditionCheck;
   effect: Effect;
-  //cost: (state: State, agent: Agent) => number;
+  cost: (state: State, agent: Agent) => number;
 };
 
 export type Plan = Action[];
@@ -121,7 +127,8 @@ const emoji: EmojiMap = {
   branch: "\\",
   stone: ".",
   well: "䷯",
-  null: " "
+  null: " ",
+  store: "🏪"
 };
 
 const agentEmoji: EmojiMap = {
@@ -213,14 +220,14 @@ function renderView(state: State): VNode {
   };
 
   return div(".stuff", [
-    div(".plan", [
+    /*div(".plan", [
       strong(state.agents[0].goal.name),
       ...state.agents[0].plan.map(action => action.name).map(name => div(name)),
       div(`Hunger: ${state.agents[0].hunger}`),
       div(`Thirst: ${state.agents[0].thirst}`),
       div(`Energy: ${state.agents[0].energy}`),
       div(`Shelter: ${state.agents[0].hasShelter}`)
-    ]),
+    ]),*/
     div(".agents", { style }, rows.map(row => div(".row", row)))
   ]);
 }
@@ -270,7 +277,7 @@ function findGoal(agent: Agent): Goal {
     };
   }
 
-  /*if (!agent.hasShelter) {
+  if (!agent.hasShelter) {
     return {
       name: "Build Shelter",
 
@@ -278,7 +285,7 @@ function findGoal(agent: Agent): Goal {
         hasShelter: true
       }
     };
-  } */
+  }
 
   return {
     name: "Eat",
@@ -288,103 +295,134 @@ function findGoal(agent: Agent): Goal {
   };
 }
 
+interface Solution {
+  nextSteps: Solution | null;
+  toPerform: Action | null;
+  actions: Action[];
+}
+
+function solutionToActions(solution: Solution): Action[] {
+  if (solution.nextSteps === null) {
+    return solution.actions;
+  }
+
+  return solution.actions.concat(solutionToActions(solution.nextSteps));
+}
+
+function printSolution(solution: Solution): string {
+  if (solution.nextSteps === null) {
+    return solution.actions.map(a => a.name).join("\n");
+  }
+
+  return (
+    solution.actions.map(a => a.name).join("\n") +
+    "\n" +
+    printSolution(solution.nextSteps)
+  );
+}
+
+function applyActions(
+  actions: Action[],
+  current: { state: State; agent: Agent },
+  strict = false
+) {
+  for (const action of actions) {
+    if (strict && action.canBePerformed(current.state, current.agent) !== 0) {
+      break;
+    }
+
+    current = action.effect(current.state, current.agent);
+  }
+
+  return current;
+}
+
+function cost(solution: Solution, state: State, agent: Agent): number {
+  if (solution.nextSteps === null) {
+    return solution.actions
+      .map(a => a.cost(state, agent))
+      .reduce((acc, val) => acc + val, 0);
+  }
+
+  return (
+    solution.actions
+      .map(a => a.cost(state, agent))
+      .reduce((acc, val) => acc + val, 0) +
+    cost(solution.nextSteps, state, agent)
+  );
+}
+
 export function makePlanBetter(
   agent: Agent,
   state: State,
-  goal: Goal,
-  depth: number = 0
+  goal: Goal
 ): Plan | null {
-  if (depth > 1) {
-    return [];
-  }
-
-  // Given a goal we want to achieve
-  //
-  // First, is the goal already satisfied? If so, our plan is []
-  // If not, enumerate all actions that would result in measurable progress towards the goal
-  // Add these actions to a priority queue, ordered by cost
-  //
-  // take an action from the top of the queue
-  // if applying this action solves our problem:
-  //  if it is possible:
-  //    return this action
-  //  else:
-  //    what actions could be taken from our current state that would make this action possible?
-  //
-  //    find this by considering all actions to see which makes current action more possible
-  //    if any of those actions are possible, we have a solution
-  //
-  //    otherwise, repeat the process until we find actions that make the current possible or none progress towards possibility
-  //
-  let solutionQueue = []; // priority queue
-
-  const distance = goalDistance(state, agent, goal.goalState);
-
-  if (distance === 0) return [];
-
-  for (const action of AllActions) {
-    const updatedStateAndAgent = action.effect(state, agent);
-
-    const updatedDistance = goalDistance(
-      updatedStateAndAgent.state,
-      updatedStateAndAgent.agent,
-      goal.goalState
-    );
-
-    const delta = distance - updatedDistance;
-    const possible = action.canBePerformed(state, agent) === 0;
-
-    if (delta > 0) {
-      solutionQueue.push([action]);
-    }
-  }
-
-  const applyActions = (actions: Action[], current: ({state: State, agent: Agent})) => {
-    for (const action of actions) {
-      if (action.canBePerformed(current.state, current.agent) !== 0) {
-        break;
-      }
-
-      current = action.effect(current.state, current.agent);
-    }
-
-    return current;
-  };
-
-  const isSolution = (actions: Action[]) => {
-    let outcome = applyActions(actions, { agent, state });
+  const isSolution = (solution: Solution) => {
+    const actions = solutionToActions(solution);
+    let outcome = applyActions(actions, { agent, state }, true);
 
     return goalDistance(outcome.state, outcome.agent, goal.goalState) === 0;
   };
 
-  const anyPossible = (actions: Action[], state: State, agent: Agent) => {
-    return actions.some(action => action.canBePerformed(state, agent) === 0);
-  }
+  let solutionQueue = new Heap({
+    comparBefore: (a: Solution, b: Solution) =>
+      cost(a, state, agent) < cost(b, state, agent)
+  });
 
-  let solution;
+  solutionQueue.insert({
+    nextSteps: null,
+    actions: [],
+    toPerform: null,
+    cost: 0
+  });
+
+  let solution: Solution | undefined;
 
   while ((solution = solutionQueue.shift()) && !isSolution(solution)) {
-    const actionToPerform = solution[0];
-    const distance = actionToPerform.canBePerformed(state, agent);
+    const { nextSteps, actions } = solution as Solution;
+
+    let check;
+
+    if (nextSteps === null) {
+      check = (state: State, agent: Agent) =>
+        goalDistance(state, agent, goal.goalState);
+    } else {
+      check = (state: State, agent: Agent) =>
+        (solution as any).toPerform.canBePerformed(state, agent);
+    }
+
+    const statesWithActions = applyActions(actions, { state, agent });
+    const distance = check(statesWithActions.state, statesWithActions.agent);
 
     for (const action of AllActions) {
-      const updatedStateAndAgent = action.effect(state, agent);
+      const newPlan = [action].concat(actions);
 
-      const updatedDistance = actionToPerform.canBePerformed(
+      const updatedStateAndAgent = applyActions(newPlan, { state, agent });
+
+      const updatedDistance = check(
         updatedStateAndAgent.state,
         updatedStateAndAgent.agent
       );
 
       const delta = distance - updatedDistance;
-      const possible = action.canBePerformed(state, agent) === 0;
 
-      if (updatedDistance === 0) {
-        solutionQueue.push([action].concat(solution));
+      if (delta > 0 && updatedDistance === 0) {
+        solutionQueue.insert({
+          nextSteps: { ...solution, actions: newPlan },
+          toPerform: action,
+          actions: []
+        });
+      } else if (delta > 0) {
+        solutionQueue.push({ ...solution, actions: newPlan });
       }
     }
   }
 
-  return solution || null;
+  if (solution && isSolution(solution)) {
+    return solutionToActions(solution);
+  }
+
+  return null;
 }
 
 export function makePlan(
@@ -420,7 +458,7 @@ function someTree(row: number, column: number): Entity | null {
         column
       }
     };
-  } else if (random > 0.8) {
+  } else if (random > 0.9) {
     return {
       kind: "tree",
       position: {
@@ -428,7 +466,7 @@ function someTree(row: number, column: number): Entity | null {
         column
       }
     };
-  } else if (random > 0.75) {
+  } else if (random > 0.85) {
     return {
       kind: "branch",
       position: {
@@ -436,7 +474,7 @@ function someTree(row: number, column: number): Entity | null {
         column
       }
     };
-  } else if (random > 0.7) {
+  } else if (random > 0.8) {
     return {
       kind: "stone",
       position: {
@@ -505,6 +543,9 @@ function goalDistance(
     }
 
     if (typeof goalValue === "number") {
+      if (agentValue >= goalValue) {
+        return 0;
+      }
       distance += Math.abs(goalValue - agentValue) / 100;
     }
 
@@ -732,7 +773,8 @@ export const AllActions: Action[] = [
     effect: (state: State, agent: Agent) => ({
       state: removeAdjacent(state, agent, "apple"),
       agent: { ...agent, hunger: 100 }
-    })
+    }),
+    cost: entityDistance("apple")
   },
   {
     name: "Build Shelter",
@@ -750,7 +792,8 @@ export const AllActions: Action[] = [
         },
         inventory: { ...agent.inventory, logs: agent.inventory.logs - 2 }
       }
-    })
+    }),
+    cost: () => 1
   },
   {
     name: "Build Well",
@@ -763,7 +806,8 @@ export const AllActions: Action[] = [
         ...agent,
         inventory: { ...agent.inventory, stones: agent.inventory.stones - 2 }
       }
-    })
+    }),
+    cost: () => 1
   },
   {
     name: "Fell Tree",
@@ -776,7 +820,8 @@ export const AllActions: Action[] = [
         ...agent,
         inventory: { ...agent.inventory, logs: agent.inventory.logs + 1 }
       }
-    })
+    }),
+    cost: entityDistance("tree")
   },
   {
     name: "Make Axe",
@@ -796,7 +841,8 @@ export const AllActions: Action[] = [
           branches: agent.inventory.branches - 1
         }
       }
-    })
+    }),
+    cost: () => 1
   },
   {
     name: "Gather Stone",
@@ -809,7 +855,8 @@ export const AllActions: Action[] = [
         ...agent,
         inventory: addToInventory(agent.inventory, "stones", 1)
       }
-    })
+    }),
+    cost: entityDistance("stone")
   },
   {
     name: "Gather Branch",
@@ -822,7 +869,8 @@ export const AllActions: Action[] = [
         ...agent,
         inventory: addToInventory(agent.inventory, "branches", 1)
       }
-    })
+    }),
+    cost: entityDistance("branch")
   },
   {
     name: "Drink from Well",
@@ -832,7 +880,8 @@ export const AllActions: Action[] = [
     effect: (state: State, agent: Agent) => ({
       state,
       agent: { ...agent, thirst: 100 }
-    })
+    }),
+    cost: entityDistance("well")
   },
   {
     name: "Sleep at Shelter",
@@ -841,8 +890,9 @@ export const AllActions: Action[] = [
     canBePerformed: (state, agent) => (agent.hasShelter ? 0 : 1),
     effect: (state: State, agent: Agent) => ({
       state,
-      agent: { ...agent, energy: agent.energy + 100 }
-    })
+      agent: { ...agent, energy: agent.energy + 25 }
+    }),
+    cost: entityDistance("shelter")
   }
 ];
 
@@ -852,12 +902,18 @@ function flatten<T>(a: Array<Array<T>>): Array<T> {
 
 function entityDistance(type: string): (state: State, agent: Agent) => number {
   return function(state: State, agent: Agent): number {
-    return distance(find(type)(state, agent), agent.position);
+    let entity = find(type)(state, agent);
+
+    if (!entity) {
+      return Infinity;
+    }
+
+    return distance(entity, agent.position);
   };
 }
 
-function find(type: string): (state: State, agent: Agent) => Position {
-  return function(state: State, agent: Agent): Position {
+function find(type: string): (state: State, agent: Agent) => Position | null {
+  return function(state: State, agent: Agent): Position | null {
     const apple = flatten(state.background as any)
       .filter(entity => entity && (entity as Apple).kind === type)
       .sort(
@@ -866,7 +922,11 @@ function find(type: string): (state: State, agent: Agent) => Position {
           distance(b.position, agent.position)
       )[0] as Apple;
 
-    return apple.position;
+    if (apple) {
+      return apple.position;
+    } else {
+      return null;
+    }
   };
 }
 
@@ -938,7 +998,13 @@ function removeAdjacent(state: State, agent: Agent, type: string): State {
 
 function has(type: string, quantity: number): PreconditionCheck {
   return function(state: State, agent: Agent): number {
-    return quantity - (agent.inventory as any)[type];
+    const difference = quantity - Math.max(0, (agent.inventory as any)[type]);
+
+    if (difference <= 0) {
+      return 0;
+    } else {
+      return difference;
+    }
   };
 }
 
@@ -972,6 +1038,66 @@ export const initialState: State = {
       position: {
         row: 10,
         column: 5
+      },
+      destination: null,
+      kind: "normal",
+      inRange: false,
+      alive: true,
+      hunger: 50 + Math.random() * 50,
+      thirst: 50 + Math.random() * 50,
+      energy: 90,
+      hasShelter: false,
+      shelterLocation: null,
+      holding: null,
+      goal: {
+        name: "Eat",
+
+        goalState: {
+          hunger: 100
+        }
+      },
+      inventory: {
+        logs: 0,
+        branches: 0,
+        stones: 0
+      },
+
+      plan: []
+    },
+    {
+      position: {
+        row: 10,
+        column: 15
+      },
+      destination: null,
+      kind: "normal",
+      inRange: false,
+      alive: true,
+      hunger: 50 + Math.random() * 50,
+      thirst: 50 + Math.random() * 50,
+      energy: 90,
+      hasShelter: false,
+      shelterLocation: null,
+      holding: null,
+      goal: {
+        name: "Eat",
+
+        goalState: {
+          hunger: 100
+        }
+      },
+      inventory: {
+        logs: 0,
+        branches: 0,
+        stones: 0
+      },
+
+      plan: []
+    },
+    {
+      position: {
+        row: 3,
+        column: 30
       },
       destination: null,
       kind: "normal",

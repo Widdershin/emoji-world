@@ -124,7 +124,7 @@ export type EmojiMap = {
 };
 
 const emoji: EmojiMap = {
-  tree: "🌲",
+  tree: "🌴",
   chicken: "🐓",
   apple: "🍎",
   house: "🏠",
@@ -264,7 +264,7 @@ export function goalSatisfied(agent: Agent, goal: Goal): boolean {
 }
 
 function findGoal(agent: Agent): Goal {
-  if (agent.energy < 50) {
+  if (agent.energy < 60) {
     return {
       name: "Sleep",
 
@@ -462,7 +462,7 @@ function someTree(row: number, column: number): Entity | null {
   const random = Math.random();
   const sand = isSand(row, column);
 
-  if (random > 0.95 && !sand) {
+  if (random > 0.98 && !sand) {
     return {
       kind: "apple",
       position: {
@@ -470,7 +470,7 @@ function someTree(row: number, column: number): Entity | null {
         column
       }
     };
-  } else if (random > 0.9 && !sand) {
+  } else if (random > 0.95 && !sand) {
     return {
       kind: "tree",
       position: {
@@ -478,7 +478,7 @@ function someTree(row: number, column: number): Entity | null {
         column
       }
     };
-  } else if (random > 0.85) {
+  } else if (random > 0.9) {
     return {
       kind: "branch",
       position: {
@@ -486,7 +486,7 @@ function someTree(row: number, column: number): Entity | null {
         column
       }
     };
-  } else if (random > 0.8) {
+  } else if (random > 0.85) {
     return {
       kind: "stone",
       position: {
@@ -505,7 +505,7 @@ function update(state: State): State {
   const agents = state.agents;
   state.agents = [];
 
-  state.timeOfDay = (state.timeOfDay + 0.2) % 24;
+  state.timeOfDay = (state.timeOfDay + 0.1) % 24;
 
   state = agents.reduce((currentState: State, agent: Agent) => {
     const update = produceUpdate(currentState, agent);
@@ -663,9 +663,9 @@ function produceUpdate(state: State, agent: Agent): EffectedStateAndAgent {
 
   let newPlan = agent.plan;
   let agentUpdate: any = {
-    hunger: agent.hunger - 0.5,
-    thirst: agent.thirst - 1,
-    energy: agent.energy - (dayTime(state.timeOfDay) ? 0.5 : 1)
+    hunger: agent.hunger - 0.2,
+    thirst: agent.thirst - 0.5,
+    energy: agent.energy - (dayTime(state.timeOfDay) ? 0.2 : 0.5)
   };
   let goal = agent.goal;
 
@@ -711,30 +711,20 @@ function produceUpdate(state: State, agent: Agent): EffectedStateAndAgent {
   }
 
   if (nextAction.requiresInRange && !agent.inRange) {
-    if (!agent.destination) {
-      let nextDestination = nextAction.findTarget(state, agent);
-      if (!nextDestination) {
-        return {
-          state,
-          agent: {
-            ...agent,
-            ...agentUpdate,
-            plan: []
-          }
-        };
-      } else {
-        return {
-          state,
-          agent: {
-            ...agent,
-            ...agentUpdate,
-            destination: nextDestination
-          }
-        };
-      }
+    let nextDestination = nextAction.findTarget(state, agent);
+
+    if (!nextDestination) {
+      return {
+        state,
+        agent: {
+          ...agent,
+          ...agentUpdate,
+          plan: []
+        }
+      };
     }
 
-    if (distance(agent.position, agent.destination) === 0) {
+    if (distance(agent.position, nextDestination) === 0) {
       return {
         state,
 
@@ -747,7 +737,7 @@ function produceUpdate(state: State, agent: Agent): EffectedStateAndAgent {
       };
     }
 
-    const movement = moveTowards(agent.position, agent.destination);
+    const movement = moveTowards(agent.position, nextDestination);
 
     return {
       state,
@@ -961,7 +951,7 @@ export const AllActions: Action[] = [
     canBePerformed: (state, agent) => (agent.hasShelter ? 0 : 1),
     effect: (state: State, agent: Agent) => ({
       state,
-      agent: { ...agent, energy: agent.energy + 25 }
+      agent: { ...agent, energy: agent.energy + 10 }
     }),
     cost: entityDistance("shelter")
   },
@@ -1293,6 +1283,39 @@ export const initialState: State = {
       position: {
         row: 3,
         column: 30
+      },
+      destination: null,
+      kind: "normal",
+      inRange: false,
+      alive: true,
+      hunger: 50 + Math.random() * 50,
+      thirst: 50 + Math.random() * 50,
+      energy: 90,
+      hasShelter: false,
+      shelterLocation: null,
+      holding: null,
+      goal: {
+        name: "Eat",
+
+        goalState: {
+          hunger: 100
+        }
+      },
+      inventory: {
+        logs: 0,
+        branches: 0,
+        stones: 0,
+        apples: 0,
+        fish: 0,
+        cookedFish: 0
+      },
+
+      plan: []
+    },
+    {
+      position: {
+        row: 10,
+        column: 55
       },
       destination: null,
       kind: "normal",

@@ -53,6 +53,13 @@ html, body {
   clip-path: none;
 }
 
+.agent.talking::after {
+  content: '💬';
+  position: absolute;
+	-webkit-transform: translate(12px, -34px);
+	-moz-transform: translate(-5px, -6px);
+}
+
 .row {
   background: lightgreen;
   display: flex;

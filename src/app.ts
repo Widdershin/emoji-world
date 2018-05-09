@@ -62,6 +62,7 @@ export type State = {
 };
 
 export type Agent = {
+  id: number;
   kind: "normal";
   position: Position;
   destination: Position | null;
@@ -69,6 +70,7 @@ export type Agent = {
   hunger: number;
   thirst: number;
   energy: number;
+  social: number;
   goal: Goal;
   plan: Plan;
   holding: Equipment | null;
@@ -162,14 +164,16 @@ function renderAgent(agent: Agent): string {
     return agentEmoji.asleep;
   }
 
-  if (
-    agent.plan.length > 0 &&
-    agent.plan[0].name.indexOf("Eat") === 0
-  ) {
+  if (agent.plan.length > 0 && agent.plan[0].name.indexOf("Eat") === 0) {
     return agentEmoji.eating;
   }
 
-  const worstStat = Math.min(agent.hunger, agent.thirst, agent.energy);
+  const worstStat = Math.min(
+    agent.hunger,
+    agent.thirst,
+    agent.energy,
+    agent.social
+  );
 
   if (worstStat > 95) {
     return agentEmoji.full;
@@ -218,6 +222,7 @@ function renderCell(state: State, row: number, column: number): VNode {
   } else if (entity) {
     content = emoji[entity.kind];
   }
+  let target;
 
   return div(
     ".cell",
@@ -228,7 +233,13 @@ function renderCell(state: State, row: number, column: number): VNode {
         agent,
         axe: agent && agent.holding === "axe",
         rod: agent && agent.holding === "rod",
-        fish: agent && agent.inventory.fish > 0
+        fish: agent && agent.inventory.fish > 0,
+        talking:
+          agent &&
+          agent.plan.length > 0 &&
+          agent.plan[0].name === "Chat" &&
+          (target = agent.plan[0].findTarget(state, agent)) &&
+          distance(agent.position, target) <= 1
       }
     },
     content
@@ -309,6 +320,16 @@ function findGoal(agent: Agent): Goal {
 
       goalState: {
         hasShelter: true
+      }
+    };
+  }
+
+  if (agent.social < 60) {
+    return {
+      name: "Talk",
+
+      goalState: {
+        social: 80
       }
     };
   }
@@ -512,7 +533,6 @@ function update(state: State): State {
   // for each agent, allow the agent to update it's own state and the global state
   //
   const agents = state.agents;
-  state.agents = [];
 
   state.timeOfDay = (state.timeOfDay + 0.1) % 24;
 
@@ -524,7 +544,9 @@ function update(state: State): State {
 
       ...update.state,
 
-      agents: currentState.agents.concat(update.agent)
+      agents: currentState.agents.map(
+        a => (a.id === update.agent.id ? update.agent : a)
+      )
     };
   }, state);
 
@@ -660,7 +682,12 @@ function produceUpdate(state: State, agent: Agent): EffectedStateAndAgent {
     return { state, agent };
   }
 
-  if (agent.thirst <= 0 || agent.hunger <= 0 || agent.energy <= 0) {
+  if (
+    agent.thirst <= 0 ||
+    agent.hunger <= 0 ||
+    agent.energy <= 0 ||
+    agent.social <= 0
+  ) {
     return {
       state,
       agent: {
@@ -674,7 +701,8 @@ function produceUpdate(state: State, agent: Agent): EffectedStateAndAgent {
   let agentUpdate: any = {
     hunger: agent.hunger - 0.2,
     thirst: agent.thirst - 0.5,
-    energy: agent.energy - (dayTime(state.timeOfDay) ? 0.2 : 0.5)
+    energy: agent.energy - (dayTime(state.timeOfDay) ? 0.2 : 0.5),
+    social: agent.social - 0.2
   };
   let goal = agent.goal;
 
@@ -1052,6 +1080,21 @@ export const AllActions: Action[] = [
       }
     }),
     cost: () => 1
+  },
+  {
+    name: "Chat",
+    requiresInRange: true,
+    range: 1,
+    findTarget: findOtherAgent,
+    canBePerformed: otherAgentExists,
+    effect: (state: State, agent: Agent) => ({
+      state,
+      agent: {
+        ...agent,
+        social: agent.social + 20
+      }
+    }),
+    cost: () => 1
   }
 ];
 
@@ -1100,6 +1143,26 @@ function find(type: string): (state: State, agent: Agent) => Position | null {
       return null;
     }
   };
+}
+
+function findOtherAgent(state: State, agent: Agent): Position | null {
+  const otherAgent = state.agents
+    .filter(a => a.id !== agent.id)
+    .sort(
+      (a, b) =>
+        distance(a.position, agent.position) -
+        distance(b.position, agent.position)
+    )[0];
+
+  if (otherAgent) {
+    return otherAgent.position;
+  }
+
+  return null;
+}
+
+function otherAgentExists(state: State, agent: Agent): number {
+  return state.agents.find(a => a.id !== agent.id) ? 0 : 1;
 }
 
 type StateCheck = (state: State, agent: Agent) => boolean;
@@ -1222,11 +1285,13 @@ export const initialState: State = {
         column: 5
       },
       destination: null,
+      id: 1,
       kind: "normal",
       inRange: false,
       alive: true,
       hunger: 50 + Math.random() * 50,
       thirst: 50 + Math.random() * 50,
+      social: 50 + Math.random() * 50,
       energy: 90,
       hasShelter: false,
       shelterLocation: null,
@@ -1255,11 +1320,13 @@ export const initialState: State = {
         column: 15
       },
       destination: null,
+      id: 2,
       kind: "normal",
       inRange: false,
       alive: true,
       hunger: 50 + Math.random() * 50,
       thirst: 50 + Math.random() * 50,
+      social: 50 + Math.random() * 50,
       energy: 90,
       hasShelter: false,
       shelterLocation: null,
@@ -1288,11 +1355,13 @@ export const initialState: State = {
         column: 30
       },
       destination: null,
+      id: 3,
       kind: "normal",
       inRange: false,
       alive: true,
       hunger: 50 + Math.random() * 50,
       thirst: 50 + Math.random() * 50,
+      social: 50 + Math.random() * 50,
       energy: 90,
       hasShelter: false,
       shelterLocation: null,
@@ -1321,11 +1390,13 @@ export const initialState: State = {
         column: 55
       },
       destination: null,
+      id: 4,
       kind: "normal",
       inRange: false,
       alive: true,
       hunger: 50 + Math.random() * 50,
       thirst: 50 + Math.random() * 50,
+      social: 50 + Math.random() * 50,
       energy: 90,
       hasShelter: false,
       shelterLocation: null,

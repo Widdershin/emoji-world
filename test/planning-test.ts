@@ -167,4 +167,14 @@ describe('planning algorithm', () => {
 
     assert(plan.length > 0, plan.map(a => a.name).join('\n'));
   });
+
+  it('can talk', () => {
+    const plan = makePlanBetter(
+      initialState.agents[0],
+      initialState,
+      {name: 'Talk', goalState: {social: 100}}
+    ) || [];
+
+    assert(plan.length > 0, plan.map(a => a.name).join('\n'));
+  });
 });

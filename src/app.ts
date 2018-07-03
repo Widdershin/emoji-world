@@ -49,7 +49,12 @@ export type Fire = {
   life: number;
 };
 
-export type Entity = Apple | Tree | House | Branch | Stone | Well | Fire;
+export type Meat = {
+  kind: "meat";
+  position: Position;
+};
+
+export type Entity = Apple | Tree | House | Branch | Stone | Well | Fire | Meat;
 
 export type Equipment = "axe" | "rod";
 
@@ -87,6 +92,7 @@ export interface Inventory {
   apples: number;
   fish: number;
   cookedFish: number;
+  meat: number;
 }
 
 export type EffectedStateAndAgent = {
@@ -135,7 +141,8 @@ const emoji: EmojiMap = {
   stone: ".",
   well: "䷯",
   null: " ",
-  fire: "🔥"
+  fire: "🔥",
+  meat: "🍖"
 };
 
 const agentEmoji: EmojiMap = {
@@ -310,16 +317,6 @@ function findGoal(agent: Agent): Goal {
 
       goalState: {
         hunger: 80
-      }
-    };
-  }
-
-  if (!agent.hasShelter) {
-    return {
-      name: "Build Shelter",
-
-      goalState: {
-        hasShelter: true
       }
     };
   }
@@ -537,14 +534,14 @@ function update(state: State): State {
   state.timeOfDay = (state.timeOfDay + 0.1) % 24;
 
   state = agents.reduce((currentState: State, agent: Agent) => {
-    const update = produceUpdate(currentState, agent);
+    const agentInState = currentState.agents.find(a => a.id === agent.id) as Agent;
+    const update = produceUpdate(currentState, agentInState);
+    const updatedState = {...currentState, ...update.state};
 
     return {
-      ...currentState,
+      ...updatedState,
 
-      ...update.state,
-
-      agents: currentState.agents.map(
+      agents: updatedState.agents.map(
         a => (a.id === update.agent.id ? update.agent : a)
       )
     };
@@ -569,6 +566,22 @@ function update(state: State): State {
       return e;
     })
   };
+
+  state = {
+    ...state,
+    background: map2dArray(state.background, (e: Entity | null, p: Position) => {
+      if (e === null && isSand(p.row, p.column)) {
+        if (Math.random() > 0.9999) {
+          return {
+            kind: 'branch',
+            position: p
+          } as Branch;
+        }
+      }
+
+      return e;
+    })
+  }
 
   return state;
 }
@@ -1085,13 +1098,61 @@ export const AllActions: Action[] = [
     name: "Chat",
     requiresInRange: true,
     range: 1,
-    findTarget: findOtherAgent,
-    canBePerformed: otherAgentExists,
+    findTarget: findOtherLivingAgent,
+    canBePerformed: otherLivingAgentExists,
     effect: (state: State, agent: Agent) => ({
       state,
       agent: {
         ...agent,
         social: agent.social + 20
+      }
+    }),
+    cost: () => 1
+  },
+  {
+    name: "Kill",
+    requiresInRange: true,
+    range: 1,
+    findTarget: findOtherLivingAgent,
+    canBePerformed: otherLivingAgentExists,
+    effect: (state: State, agent: Agent) => ({
+      state: killOtherAgent(state, agent),
+      agent
+    }),
+    cost: () => Infinity
+  },
+  {
+    name: "Pick up Meat",
+    requiresInRange: true,
+    range: 1,
+    findTarget: find("meat"),
+    canBePerformed: entityExists("meat"),
+    effect: (state: State, agent: Agent) => ({
+      state: removeAdjacent(state, agent, "meat"),
+      agent: {
+        ...agent,
+        inventory: {
+          ...agent.inventory,
+          meat: agent.inventory.meat + 1
+        }
+      }
+    }),
+    cost: () => 1
+  },
+  {
+    name: "Eat Meat",
+    requiresInRange: false,
+    findTarget: () => ({ row: 0, column: 0 }),
+    canBePerformed: has("meat", 1),
+    effect: (state: State, agent: Agent) => ({
+      state: removeAdjacent(state, agent, "meat"),
+      agent: {
+        ...agent,
+        hunger: 100,
+        inventory: {
+          ...agent.inventory,
+          meat: agent.inventory.meat - 1
+        }
       }
     }),
     cost: () => 1
@@ -1161,8 +1222,46 @@ function findOtherAgent(state: State, agent: Agent): Position | null {
   return null;
 }
 
-function otherAgentExists(state: State, agent: Agent): number {
-  return state.agents.find(a => a.id !== agent.id) ? 0 : 1;
+function findOtherLivingAgent(state: State, agent: Agent): Position | null {
+  const otherAgent = state.agents
+    .filter(a => a.alive && a.id !== agent.id)
+    .sort(
+      (a, b) =>
+        distance(a.position, agent.position) -
+        distance(b.position, agent.position)
+    )[0];
+
+  if (otherAgent) {
+    return otherAgent.position;
+  }
+
+  return null;
+}
+
+function killOtherAgent(state: State, agent: Agent): State {
+  const otherAgent = state.agents
+    .filter(a => a.id !== agent.id)
+    .sort(
+      (a, b) =>
+        distance(a.position, agent.position) -
+        distance(b.position, agent.position)
+    )[0];
+
+  if (!otherAgent) { return state; }
+
+  state =  {
+    ...state,
+
+    agents: state.agents.map(a => a === otherAgent ? {...a, alive: false} : a)
+  }
+
+  state = build('meat', state, otherAgent);
+
+  return state;
+}
+
+function otherLivingAgentExists(state: State, agent: Agent): number {
+  return state.agents.find(a => a.alive && a.id !== agent.id) ? 0 : 1;
 }
 
 type StateCheck = (state: State, agent: Agent) => boolean;
@@ -1199,7 +1298,7 @@ function build(type: string, state: State, agent: Agent): State {
   const house: any = {
     kind: type,
     position: {
-      row: agent.position.row - 1,
+      row: agent.position.row + (agent.position.row === 0 ? -1 : +1),
       column: agent.position.column
     }
   };
@@ -1309,7 +1408,8 @@ export const initialState: State = {
         apples: 0,
         stones: 0,
         fish: 0,
-        cookedFish: 0
+        cookedFish: 0,
+        meat: 0
       },
 
       plan: []
@@ -1344,7 +1444,8 @@ export const initialState: State = {
         apples: 0,
         stones: 0,
         fish: 0,
-        cookedFish: 0
+        cookedFish: 0,
+        meat: 0
       },
 
       plan: []
@@ -1379,7 +1480,8 @@ export const initialState: State = {
         stones: 0,
         apples: 0,
         fish: 0,
-        cookedFish: 0
+        cookedFish: 0,
+        meat: 0
       },
 
       plan: []
@@ -1414,38 +1516,19 @@ export const initialState: State = {
         stones: 0,
         apples: 0,
         fish: 0,
-        cookedFish: 0
+        cookedFish: 0,
+        meat: 0
       },
 
       plan: []
     }
-
-    /*
-      {
-        position: {
-          row: 10,
-          column: 20,
-        },
-        destination: null,
-        kind: 'normal',
-        hunger: 50,
-        goal: {
-          name: 'Eat',
-
-          goalState: {
-            hunger: 100
-          }
-        },
-
-        plan: []
-      }
-      */
   ],
   background: make2dArray(60, 20, someTree),
   timeOfDay: 8,
   width: 60,
   height: 20
 };
+
 export function main(sources: Sources): Sinks {
   const update$ = sources.Time.periodic(1000 / 5);
 

@@ -4,11 +4,11 @@
   "description": "",
   "main": "index.js",
   "dependencies": {
-    "@cycle/dom": "^20.2.0",
-    "@cycle/run": "^3.1.0",
-    "@cycle/time": "^0.8.0",
+    "@cycle/dom": "^22.4.0",
+    "@cycle/run": "^5.3.0",
+    "@cycle/time": "^0.20.0",
     "qheap": "^1.4.0",
-    "xstream": "^10.5.0"
+    "xstream": "^11.11.0"
   },
   "devDependencies": {
     "@types/mocha": "^2.2.40",
@@ -22,7 +22,8 @@
   },
   "scripts": {
     "start": "budo src/index.ts:bundle.js --live -- -p tsify",
-    "test": "mocha --watch -R min --compilers ts:ts-node/register test/**/*.ts"
+    "test": "mocha --watch -R min --compilers ts:ts-node/register test/**/*.ts",
+    "build": "browserify -p tsify src/index.ts -o bundle.js"
   },
   "keywords": [],
   "author": "",

@@ -14,7 +14,7 @@
     "@types/mocha": "^2.2.40",
     "@types/node": "^7.0.12",
     "browserify": "^14.3.0",
-    "budo": "^9.4.7",
+    "budo": "^11.8.4",
     "mocha": "^3.2.0",
     "ts-node": "^3.0.2",
     "tsify": "^3.0.1",
